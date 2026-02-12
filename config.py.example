@@ -1,0 +1,14 @@
+# Настройки Telegram
+TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+TELEGRAM_CHAT_ID = "YOUR_CHAT_ID_HERE"
+
+# Настройки обновления
+UPDATE_INTERVAL = 600000  # 10 минут в миллисекундах
+FAVORITES_INTERVAL = 60000  # 1 минута в миллисекундах
+
+# URL для BetsAPI
+BETSAPI_URL = "https://betsapi.com/cio/basketball"
+
+# Добавьте к существующим настройкам:
+API_UPDATE_INTERVAL = 60  # секунды для обновления избранных матчей
+GENERAL_UPDATE_INTERVAL = 600  # секунды для обновления всех матчей

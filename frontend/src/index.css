@@ -1,0 +1,60 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0f0f1a;
+  color: #e0e0e0;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #1a1a2e;
+}
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Ant Design table dark overrides */
+.ant-table {
+  background: #1a1a2e !important;
+}
+.ant-table-thead > tr > th {
+  background: #16213e !important;
+  color: #e0e0e0 !important;
+  border-bottom: 1px solid #333 !important;
+}
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid #222 !important;
+}
+.ant-table-tbody > tr:hover > td {
+  background: #1f2940 !important;
+}
+
+.under-value {
+  color: #ff4d4f;
+  font-weight: 700;
+}
+.over-value {
+  color: #52c41a;
+  font-weight: 700;
+}
+.calc-temp-cell {
+  background: #1a2b45 !important;
+}
