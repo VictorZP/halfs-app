@@ -65,38 +65,7 @@ def init_royka_db() -> None:
         conn.commit()
 
 
-def init_cybers_db() -> None:
-    path = _db_path("cyber_bases.db")
-    with sqlite3.connect(path) as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS cyber_matches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT, tournament TEXT, team TEXT, home_away TEXT,
-                two_pt_made REAL, two_pt_attempt REAL,
-                three_pt_made REAL, three_pt_attempt REAL,
-                fta_made REAL, fta_attempt REAL,
-                off_rebound REAL, turnovers REAL,
-                controls REAL, points REAL,
-                opponent TEXT, attak_kef REAL, status TEXT
-            )
-        """)
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_cyber_tournament ON cyber_matches(tournament)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_cyber_team ON cyber_matches(team)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_cyber_opponent ON cyber_matches(opponent)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_cyber_date ON cyber_matches(date)")
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS cyber_live_matches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tournament TEXT, team1 TEXT, team2 TEXT,
-                total REAL, calc_temp REAL
-            )
-        """)
-        conn.commit()
-
-
 def init_all_databases() -> None:
     """Create all tables in all databases if they don't exist yet."""
     init_halfs_db()
     init_royka_db()
-    init_cybers_db()

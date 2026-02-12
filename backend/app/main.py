@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.config import get_settings
 from backend.app.database.models import init_all_databases
-from backend.app.routers import cybers, halfs, royka
+from backend.app.routers import halfs, royka
 
 
 @asynccontextmanager
@@ -31,8 +31,7 @@ app = FastAPI(
     title="Excel Analyzer Pro — Web API",
     description=(
         "REST API for basketball statistics analysis.\n\n"
-        "Sections: **Halfs** (База половин), **Royka** (Ройка), "
-        "**Cybers** (Cybers Bases / Cyber LIVE)."
+        "Sections: **Halfs** (База половин), **Royka** (Ройка)."
     ),
     version="1.0.0",
     lifespan=lifespan,
@@ -50,7 +49,6 @@ app.add_middleware(
 # Register routers
 app.include_router(halfs.router, prefix="/api")
 app.include_router(royka.router, prefix="/api")
-app.include_router(cybers.router, prefix="/api")
 
 
 @app.get("/")

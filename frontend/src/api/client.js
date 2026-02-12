@@ -13,33 +13,6 @@ const client = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// ───── Cybers ─────
-
-export const cybers = {
-  getMatches: (tournament) =>
-    client.get('/cybers/matches', { params: tournament ? { tournament } : {} }),
-  importMatches: (rawText) =>
-    client.post('/cybers/matches/import', { raw_text: rawText }),
-  deleteMatches: (ids) => client.delete('/cybers/matches', { data: { ids } }),
-  clearAll: () => client.delete('/cybers/matches/all'),
-  getTournaments: () => client.get('/cybers/tournaments'),
-  getSummary: () => client.get('/cybers/summary'),
-  findDuplicates: () => client.post('/cybers/duplicates'),
-  replaceInBase: (find, replace, ids) =>
-    client.post('/cybers/replace', { find, replace, ids }),
-
-  // Predict
-  predict: (tournament, team1, team2) =>
-    client.post('/cybers/predict', { tournament, team1, team2 }),
-
-  // Live
-  getLive: () => client.get('/cybers/live'),
-  addLive: (match) => client.post('/cybers/live', match),
-  updateLive: (id, update) => client.put(`/cybers/live/${id}`, update),
-  deleteLive: (id) => client.delete(`/cybers/live/${id}`),
-  clearLive: () => client.delete('/cybers/live'),
-};
-
 // ───── Halfs ─────
 
 export const halfs = {
@@ -53,6 +26,16 @@ export const halfs = {
   getStatistics: () => client.get('/halfs/statistics'),
   getTeamStats: (tournament) => client.get(`/halfs/team-stats/${tournament}`),
   getSummary: () => client.get('/halfs/summary'),
+  getDeviations: (tournament) => client.get(`/halfs/deviations/${tournament}`),
+  getWinsLosses: (tournament) => client.get(`/halfs/wins-losses/${tournament}`),
+  getQuarterDistribution: (tournament, team1, team2, total) =>
+    client.get(`/halfs/quarter-distribution/${tournament}`, {
+      params: { team1, team2, total },
+    }),
+  getCoefficients: (tournament, team1, team2, q, h, m) =>
+    client.get(`/halfs/coefficients/${tournament}`, {
+      params: { team1, team2, q_threshold: q, h_threshold: h, m_threshold: m },
+    }),
 };
 
 // ───── Royka ─────

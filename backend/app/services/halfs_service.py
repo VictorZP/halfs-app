@@ -290,3 +290,179 @@ def get_tournament_summary() -> List[dict]:
         })
 
     return sorted(results, key=lambda x: x["tournament"])
+
+
+# ---------------------------------------------------------------------------
+# Deviations (Отклонения)
+# ---------------------------------------------------------------------------
+
+def get_team_deviations(tournament: str) -> List[dict]:
+    """Deviation between 2nd and 1st half for each team.
+
+    deviation = (h2_scored + h2_conceded) - (h1_scored + h1_conceded)
+    """
+    stats = get_team_statistics(tournament)
+    if not stats:
+        return []
+    results = []
+    for s in stats:
+        h1_total = s["h1_scored"] + s["h1_conceded"]
+        h2_total = s["h2_scored"] + s["h2_conceded"]
+        deviation = round(h2_total - h1_total, 1)
+        avg_total = round(h1_total + h2_total, 1)
+        results.append({
+            "team": s["team"],
+            "games": s["games"],
+            "h1_total": round(h1_total, 1),
+            "h2_total": round(h2_total, 1),
+            "deviation": deviation,
+            "average_total": avg_total,
+        })
+    return sorted(results, key=lambda x: x["team"])
+
+
+# ---------------------------------------------------------------------------
+# Wins / Losses (Победы/поражения)
+# ---------------------------------------------------------------------------
+
+def get_wins_losses(tournament: str) -> List[dict]:
+    """Count wins and losses per team in a tournament."""
+    with sqlite3.connect(_db_path()) as conn:
+        df = pd.read_sql_query(
+            "SELECT * FROM matches WHERE tournament = ?", conn, params=(tournament,)
+        )
+    if df.empty:
+        return []
+
+    df = df.copy()
+    for side in ("home", "away"):
+        df[f"total_{side}"] = (
+            df[f"q1_{side}"].fillna(0) + df[f"q2_{side}"].fillna(0) +
+            df[f"q3_{side}"].fillna(0) + df[f"q4_{side}"].fillna(0) +
+            df[f"ot_{side}"].fillna(0)
+        )
+
+    teams = sorted(set(df["team_home"]) | set(df["team_away"]))
+    wins_map: Dict[str, int] = {t: 0 for t in teams}
+    losses_map: Dict[str, int] = {t: 0 for t in teams}
+
+    for _, row in df.iterrows():
+        th, ta = row["total_home"], row["total_away"]
+        if th > ta:
+            wins_map[row["team_home"]] += 1
+            losses_map[row["team_away"]] += 1
+        elif ta > th:
+            wins_map[row["team_away"]] += 1
+            losses_map[row["team_home"]] += 1
+
+    return [
+        {"team": t, "wins": wins_map[t], "losses": losses_map[t],
+         "total": wins_map[t] + losses_map[t],
+         "win_pct": round(wins_map[t] / (wins_map[t] + losses_map[t]) * 100, 1) if (wins_map[t] + losses_map[t]) > 0 else 0}
+        for t in teams
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Quarter distribution (Средние четверти)
+# ---------------------------------------------------------------------------
+
+def get_quarter_distribution(tournament: str, team1: str, team2: str, total: float) -> Optional[dict]:
+    """Distribute a match total across quarters for a pair of teams."""
+    stats = {s["team"]: s for s in get_team_statistics(tournament)}
+    if team1 not in stats or team2 not in stats:
+        return None
+    t1, t2 = stats[team1], stats[team2]
+
+    q1 = ((t1["q1_scored"] + t1["q1_conceded"]) + (t2["q1_scored"] + t2["q1_conceded"])) / 2.0
+    q2 = ((t1["q2_scored"] + t1["q2_conceded"]) + (t2["q2_scored"] + t2["q2_conceded"])) / 2.0
+    q3 = ((t1["q3_scored"] + t1["q3_conceded"]) + (t2["q3_scored"] + t2["q3_conceded"])) / 2.0
+    q4 = ((t1["q4_scored"] + t1["q4_conceded"]) + (t2["q4_scored"] + t2["q4_conceded"])) / 2.0
+    q_total = q1 + q2 + q3 + q4
+    if q_total == 0:
+        return None
+
+    return {
+        "team1": team1,
+        "team2": team2,
+        "total": total,
+        "q1": round(total * q1 / q_total, 1),
+        "q2": round(total * q2 / q_total, 1),
+        "q3": round(total * q3 / q_total, 1),
+        "q4": round(total * q4 / q_total, 1),
+        "h1": round(total * (q1 + q2) / q_total, 1),
+        "h2": round(total * (q3 + q4) / q_total, 1),
+        "q1_pct": round(q1 / q_total * 100, 1),
+        "q2_pct": round(q2 / q_total * 100, 1),
+        "q3_pct": round(q3 / q_total * 100, 1),
+        "q4_pct": round(q4 / q_total * 100, 1),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Over/Under coefficients (Коэффициенты)
+# ---------------------------------------------------------------------------
+
+def get_coefficients(
+    tournament: str, team1: str, team2: str,
+    q_threshold: float, h_threshold: float, m_threshold: float,
+) -> Optional[dict]:
+    """Compute over/under coefficients for a pair of teams."""
+    with sqlite3.connect(_db_path()) as conn:
+        df = pd.read_sql_query(
+            "SELECT * FROM matches WHERE tournament = ?", conn, params=(tournament,)
+        )
+    if df.empty:
+        return None
+
+    df = df.copy()
+    df["q1_total"] = df["q1_home"].fillna(0) + df["q1_away"].fillna(0)
+    df["q2_total"] = df["q2_home"].fillna(0) + df["q2_away"].fillna(0)
+    df["q3_total"] = df["q3_home"].fillna(0) + df["q3_away"].fillna(0)
+    df["q4_total"] = df["q4_home"].fillna(0) + df["q4_away"].fillna(0)
+    df["h1_total"] = df["q1_total"] + df["q2_total"]
+    df["h2_total"] = df["q3_total"] + df["q4_total"]
+    df["match_total"] = df["h1_total"] + df["h2_total"]
+
+    teams = sorted(set(df["team_home"]) | set(df["team_away"]))
+    counts: Dict[str, Dict[str, int]] = {t: {
+        "games": 0, "q1": 0, "q2": 0, "q3": 0, "q4": 0, "h1": 0, "h2": 0, "match": 0,
+    } for t in teams}
+
+    for _, row in df.iterrows():
+        home, away = row["team_home"], row["team_away"]
+        counts[home]["games"] += 1
+        counts[away]["games"] += 1
+        for q, col in [("q1", "q1_total"), ("q2", "q2_total"), ("q3", "q3_total"), ("q4", "q4_total")]:
+            if row[col] > q_threshold:
+                counts[home][q] += 1
+                counts[away][q] += 1
+        if row["h1_total"] > h_threshold:
+            counts[home]["h1"] += 1
+            counts[away]["h1"] += 1
+        if row["h2_total"] > h_threshold:
+            counts[home]["h2"] += 1
+            counts[away]["h2"] += 1
+        if row["match_total"] > m_threshold:
+            counts[home]["match"] += 1
+            counts[away]["match"] += 1
+
+    if team1 not in counts or team2 not in counts:
+        return None
+
+    periods = ["q1", "q2", "q3", "q4", "h1", "h2", "match"]
+    result = {"over": {}, "under": {}, "counts": {
+        "team1": {"name": team1, **counts.get(team1, {})},
+        "team2": {"name": team2, **counts.get(team2, {})},
+    }}
+    for p in periods:
+        overs = counts[team1][p] + counts[team2][p]
+        games = counts[team1]["games"] + counts[team2]["games"]
+        if overs == 0 or games == 0:
+            result["over"][p] = 0.0
+            result["under"][p] = 0.0
+        else:
+            oc = games / overs
+            result["over"][p] = round(oc, 2)
+            result["under"][p] = round(oc / (oc - 1), 2) if oc != 1.0 else 0.0
+    return result

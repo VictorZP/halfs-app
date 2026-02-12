@@ -4,19 +4,15 @@ import { Layout, Menu } from 'antd';
 import {
   BarChartOutlined,
   DatabaseOutlined,
-  ThunderboltOutlined,
   TableOutlined,
   LineChartOutlined,
   FundOutlined,
-  SortAscendingOutlined,
 } from '@ant-design/icons';
 
 import RoykaPage from './pages/RoykaPage';
 import HalfsBasePage from './pages/HalfsBasePage';
 import HalfsStatsPage from './pages/HalfsStatsPage';
 import TournamentSummaryPage from './pages/TournamentSummaryPage';
-import CybersBasesPage from './pages/CybersBasesPage';
-import CyberLivePage from './pages/CyberLivePage';
 import HomePage from './pages/HomePage';
 
 const { Sider, Content, Header } = Layout;
@@ -27,8 +23,6 @@ const menuItems = [
   { key: '/halfs',        icon: <DatabaseOutlined />,       label: 'База половин' },
   { key: '/halfs-stats',  icon: <LineChartOutlined />,      label: 'Статистика из половин' },
   { key: '/summary',      icon: <TableOutlined />,          label: 'Сводная таблица' },
-  { key: '/cybers-bases', icon: <DatabaseOutlined />,       label: 'Cybers Bases' },
-  { key: '/cyber-live',   icon: <ThunderboltOutlined />,    label: 'Cyber LIVE' },
 ];
 
 export default function App() {
@@ -96,8 +90,6 @@ export default function App() {
             <Route path="/halfs" element={<HalfsBasePage />} />
             <Route path="/halfs-stats" element={<HalfsStatsPage />} />
             <Route path="/summary" element={<TournamentSummaryPage />} />
-            <Route path="/cybers-bases" element={<CybersBasesPage />} />
-            <Route path="/cyber-live" element={<CyberLivePage />} />
           </Routes>
         </Content>
       </Layout>
