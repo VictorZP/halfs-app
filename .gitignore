@@ -22,8 +22,9 @@ env/
 
 # Environment / Secrets
 .env
-config.py
+/config.py
 settings.json
+!backend/app/config.py
 
 # Databases (local)
 *.db
