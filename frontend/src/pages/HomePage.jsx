@@ -2,10 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Card, Row, Col, Statistic, Typography } from 'antd';
 import {
   DatabaseOutlined,
-  ThunderboltOutlined,
   FundOutlined,
 } from '@ant-design/icons';
-import { halfs, royka, cybers } from '../api/client';
+import { halfs, royka } from '../api/client';
 
 const { Title, Paragraph } = Typography;
 
@@ -16,14 +15,12 @@ export default function HomePage() {
     Promise.all([
       halfs.getStatistics().catch(() => ({ data: {} })),
       royka.getStatistics().catch(() => ({ data: {} })),
-      cybers.getTournaments().catch(() => ({ data: [] })),
-    ]).then(([h, r, c]) => {
+    ]).then(([h, r]) => {
       setStats({
         halfsMatches: h.data.total_matches || 0,
         halfsTournaments: h.data.tournaments || 0,
         roykaRecords: r.data.total_records || 0,
         roykaTournaments: r.data.tournaments_count || 0,
-        cybersTournaments: c.data?.length || 0,
       });
     });
   }, []);
@@ -38,7 +35,7 @@ export default function HomePage() {
       </Paragraph>
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={12}>
           <Card style={{ background: '#1a1a2e', border: '1px solid #333' }}>
             <Statistic
               title={<span style={{ color: '#999' }}>База половин</span>}
@@ -52,7 +49,7 @@ export default function HomePage() {
             </div>
           </Card>
         </Col>
-        <Col xs={24} sm={8}>
+        <Col xs={24} sm={12}>
           <Card style={{ background: '#1a1a2e', border: '1px solid #333' }}>
             <Statistic
               title={<span style={{ color: '#999' }}>Ройка</span>}
@@ -64,17 +61,6 @@ export default function HomePage() {
             <div style={{ color: '#666', marginTop: 8 }}>
               {stats.roykaTournaments || 0} турниров
             </div>
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
-          <Card style={{ background: '#1a1a2e', border: '1px solid #333' }}>
-            <Statistic
-              title={<span style={{ color: '#999' }}>Cybers</span>}
-              value={stats.cybersTournaments || 0}
-              suffix="турниров"
-              prefix={<ThunderboltOutlined style={{ color: '#e74c3c' }} />}
-              valueStyle={{ color: '#e0e0e0' }}
-            />
           </Card>
         </Col>
       </Row>
