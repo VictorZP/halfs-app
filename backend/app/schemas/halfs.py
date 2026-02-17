@@ -1,5 +1,6 @@
 """Pydantic schemas for Halfs API endpoints."""
 
+from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel
 
@@ -20,7 +21,7 @@ class HalfsMatch(BaseModel):
     q4_away: Optional[int] = 0
     ot_home: Optional[int] = 0
     ot_away: Optional[int] = 0
-    created_at: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 
 class ImportRequest(BaseModel):
