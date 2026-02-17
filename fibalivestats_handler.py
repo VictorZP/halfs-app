@@ -3,6 +3,8 @@ import re
 import os
 import sqlite3
 import json
+from contextlib import contextmanager
+from db_connection import db_connect
 import tkinter as tk
 from tkinter import filedialog
 import subprocess
@@ -457,24 +459,28 @@ class FibaLiveStatsHandler:
             console_handler.setFormatter(formatter)
             self.logger.addHandler(console_handler)
 
+    _SCHEMA = 'fibalivestats'
+
+    @contextmanager
+    def _connect(self):
+        with db_connect(schema=self._SCHEMA, sqlite_path=self.db_path) as conn:
+            yield conn
+
     def init_database(self):
         """Инициализация базы данных"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tournaments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
-                url TEXT NOT NULL,
-                active INTEGER DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS tournaments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    url TEXT NOT NULL,
+                    active INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.commit()
 
     def add_log(self, message, level="INFO"):
         """Добавление сообщения в лог"""
@@ -554,74 +560,57 @@ class FibaLiveStatsHandler:
     def add_tournament(self, name, url, active=True):
         """Добавление нового турнира"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO tournaments (name, url, active) 
-                VALUES (?, ?, ?)
-            ''', (name, url, 1 if active else 0))
-            
-            conn.commit()
-            conn.close()
+            with self._connect() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO tournaments (name, url, active) 
+                    VALUES (?, ?, ?)
+                ''', (name, url, 1 if active else 0))
+                conn.commit()
             return True
-        except sqlite3.IntegrityError:
-            logging.warning(f"Турнир '{name}' уже существует")
-            return False
         except Exception as e:
-            logging.error(f"Ошибка при добавлении турнира: {str(e)}")
+            if 'UNIQUE' in str(e).upper() or 'duplicate' in str(e).lower():
+                logging.warning(f"Турнир '{name}' уже существует")
+            else:
+                logging.error(f"Ошибка при добавлении турнира: {str(e)}")
             return False
 
     def get_all_tournaments(self):
         """Получение всех турниров"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT id, name, url, active FROM tournaments ORDER BY name')
-        tournaments = cursor.fetchall()
-        
-        conn.close()
-        return tournaments
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, name, url, active FROM tournaments ORDER BY name')
+            return cursor.fetchall()
 
     def get_active_tournaments(self):
         """Получение активных турниров"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT name, url FROM tournaments WHERE active = 1 ORDER BY name')
-        tournaments = cursor.fetchall()
-        
-        conn.close()
-        return tournaments
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT name, url FROM tournaments WHERE active = 1 ORDER BY name')
+            return cursor.fetchall()
 
     def update_tournament(self, tournament_id, name=None, url=None, active=None):
         """Обновление турнира"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            updates = []
-            params = []
-            
-            if name is not None:
-                updates.append("name = ?")
-                params.append(name)
-            if url is not None:
-                updates.append("url = ?")
-                params.append(url)
-            if active is not None:
-                updates.append("active = ?")
-                params.append(1 if active else 0)
-                
-            if updates:
-                updates.append("updated_at = CURRENT_TIMESTAMP")
-                params.append(tournament_id)
-                
-                query = f"UPDATE tournaments SET {', '.join(updates)} WHERE id = ?"
-                cursor.execute(query, params)
-                conn.commit()
-                
-            conn.close()
+            with self._connect() as conn:
+                cursor = conn.cursor()
+                updates = []
+                params = []
+                if name is not None:
+                    updates.append("name = ?")
+                    params.append(name)
+                if url is not None:
+                    updates.append("url = ?")
+                    params.append(url)
+                if active is not None:
+                    updates.append("active = ?")
+                    params.append(1 if active else 0)
+                if updates:
+                    updates.append("updated_at = CURRENT_TIMESTAMP")
+                    params.append(tournament_id)
+                    query = f"UPDATE tournaments SET {', '.join(updates)} WHERE id = ?"
+                    cursor.execute(query, params)
+                    conn.commit()
             return True
         except Exception as e:
             logging.error(f"Ошибка при обновлении турнира: {str(e)}")
@@ -630,13 +619,10 @@ class FibaLiveStatsHandler:
     def delete_tournament(self, tournament_id):
         """Удаление турнира"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('DELETE FROM tournaments WHERE id = ?', (tournament_id,))
-            conn.commit()
-            
-            conn.close()
+            with self._connect() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM tournaments WHERE id = ?', (tournament_id,))
+                conn.commit()
             return True
         except Exception as e:
             logging.error(f"Ошибка при удалении турнира: {str(e)}")

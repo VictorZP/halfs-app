@@ -1,28 +1,49 @@
 version: "3.9"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: halfs-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: halfs
+      POSTGRES_PASSWORD: halfs_secret
+      POSTGRES_DB: halfs_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: halfs-backend
     restart: unless-stopped
     ports:
       - "8000:8000"
-    volumes:
-      - ./data:/app/data          # Persist SQLite databases
+    depends_on:
+      - postgres
     environment:
-      - DATABASE_URL=sqlite:///./data/app.db
+      - DATABASE_URL=postgresql://halfs:halfs_secret@postgres:5432/halfs_db
       - CORS_ORIGINS=http://localhost,http://localhost:3000,http://localhost:80
+      - AUTH_USERNAME=admin
+      - AUTH_PASSWORD=changeme
+      - JWT_SECRET=your-production-secret-here
       - DEBUG=false
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
     container_name: halfs-frontend
     restart: unless-stopped
     ports:
       - "80:80"
     depends_on:
       - backend
+
+volumes:
+  pgdata:

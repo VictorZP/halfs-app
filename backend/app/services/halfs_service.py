@@ -1,28 +1,32 @@
 """Business logic for the Halfs (База половин) section.
 
 This wraps the existing HalfsDatabase class, adapting it for the web
-backend with a configurable database path.
+backend.  Works with both SQLite and PostgreSQL via db_connect.
 """
 
-import sqlite3
 from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+import re
 
 import pandas as pd
 
-from backend.app.config import get_settings
+from backend.app.database.connection import get_halfs_connection
+from db_connection import is_postgres, adapt_sql
 
 
-def _db_path() -> str:
-    return str(get_settings().data_dir / "halfs.db")
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _rows_to_dicts(cursor) -> List[dict]:
+    """Convert cursor results to a list of dicts using cursor.description."""
+    columns = [d[0] for d in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
 # ---------------------------------------------------------------------------
 # Data import — line parsing reuses the logic from halfs_database.py
 # ---------------------------------------------------------------------------
-
-from datetime import datetime
-import re
-
 
 def _parse_match_line(line: str) -> Optional[Tuple]:
     """Parses a raw match line.
@@ -38,7 +42,6 @@ def _parse_match_line(line: str) -> Optional[Tuple]:
     if len(tokens) < 7:
         return None
 
-    # Date
     start_idx = 0
     try:
         parsed_date = datetime.strptime(tokens[0], "%d.%m.%Y")
@@ -47,7 +50,6 @@ def _parse_match_line(line: str) -> Optional[Tuple]:
     except Exception:
         date_iso = ""
 
-    # Find trailing scores
     total = len(tokens)
     scores = []
     score_start = None
@@ -69,7 +71,6 @@ def _parse_match_line(line: str) -> Optional[Tuple]:
     if len(meta) < 3:
         return None
 
-    # Group (W) tokens
     grouped = []
     i = 0
     while i < len(meta):
@@ -82,23 +83,21 @@ def _parse_match_line(line: str) -> Optional[Tuple]:
     if len(meta) < 3:
         return None
 
-    # Split: last two tokens are teams, rest is tournament
     team_away = meta[-1]
     team_home = meta[-2]
     tournament = " ".join(meta[:-2])
 
-    # Build score tuple
     if scores_type == "quarters":
         if len(scores) == 8:
             q1h, q1a, q2h, q2a, q3h, q3a, q4h, q4a = scores
             oth, ota = 0, 0
-        else:  # 10
+        else:
             q1h, q1a, q2h, q2a, q3h, q3a, q4h, q4a, oth, ota = scores
-    else:  # halves (NCAA D1)
+    else:
         if len(scores) == 4:
             q1h, q1a, q2h, q2a = scores
             q3h = q3a = q4h = q4a = oth = ota = 0
-        else:  # 6
+        else:
             q1h, q1a, q2h, q2a, oth, ota = scores
             q3h = q3a = q4h = q4a = 0
 
@@ -125,8 +124,9 @@ def import_matches(raw_text: str) -> Tuple[int, List[str]]:
             errors.append(line.strip())
 
     if parsed:
-        with sqlite3.connect(_db_path()) as conn:
-            conn.executemany(
+        with get_halfs_connection() as conn:
+            cur = conn.cursor()
+            cur.executemany(
                 """INSERT INTO matches (
                     date, tournament, team_home, team_away,
                     q1_home, q1_away, q2_home, q2_away,
@@ -146,22 +146,23 @@ def import_matches(raw_text: str) -> Tuple[int, List[str]]:
 
 def get_all_matches(tournament: Optional[str] = None, limit: int = 10000) -> List[dict]:
     query = "SELECT * FROM matches"
-    params = []
+    params: list = []
     if tournament:
         query += " WHERE tournament = ?"
         params.append(tournament)
     query += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
 
-    with sqlite3.connect(_db_path()) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(query, params).fetchall()
-    return [dict(r) for r in rows]
+    with get_halfs_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(query, params)
+        return _rows_to_dicts(cur)
 
 
 def get_tournaments() -> List[str]:
-    with sqlite3.connect(_db_path()) as conn:
-        cur = conn.execute(
+    with get_halfs_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
             "SELECT DISTINCT tournament FROM matches WHERE tournament IS NOT NULL ORDER BY tournament"
         )
         return [r[0] for r in cur.fetchall()]
@@ -170,7 +171,7 @@ def get_tournaments() -> List[str]:
 def delete_matches(ids: List[int]) -> int:
     if not ids:
         return 0
-    with sqlite3.connect(_db_path()) as conn:
+    with get_halfs_connection() as conn:
         cur = conn.cursor()
         cur.executemany("DELETE FROM matches WHERE id = ?", [(i,) for i in ids])
         conn.commit()
@@ -178,21 +179,26 @@ def delete_matches(ids: List[int]) -> int:
 
 
 def clear_all() -> None:
-    with sqlite3.connect(_db_path()) as conn:
-        conn.execute("DELETE FROM matches")
+    with get_halfs_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM matches")
         conn.commit()
 
 
 def get_statistics() -> dict:
-    with sqlite3.connect(_db_path()) as conn:
-        total = conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
-        tournaments = conn.execute("SELECT COUNT(DISTINCT tournament) FROM matches").fetchone()[0]
-        teams = conn.execute("""
+    with get_halfs_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM matches")
+        total = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(DISTINCT tournament) FROM matches")
+        tournaments = cur.fetchone()[0]
+        cur.execute("""
             SELECT COUNT(DISTINCT team) FROM (
                 SELECT team_home AS team FROM matches
                 UNION SELECT team_away AS team FROM matches
-            )
-        """).fetchone()[0]
+            ) sub
+        """)
+        teams = cur.fetchone()[0]
     return {"total_matches": total, "tournaments": tournaments, "teams": teams}
 
 
@@ -200,19 +206,33 @@ def get_statistics() -> dict:
 # Statistics calculations
 # ---------------------------------------------------------------------------
 
+def _get_halfs_df(tournament: Optional[str] = None) -> pd.DataFrame:
+    """Load matches as DataFrame."""
+    with get_halfs_connection() as conn:
+        if is_postgres():
+            raw = conn._conn if hasattr(conn, '_conn') else conn
+            if tournament:
+                return pd.read_sql_query(
+                    adapt_sql("SELECT * FROM matches WHERE tournament = ?"),
+                    raw, params=(tournament,),
+                )
+            return pd.read_sql_query("SELECT * FROM matches", raw)
+        else:
+            if tournament:
+                return pd.read_sql_query(
+                    "SELECT * FROM matches WHERE tournament = ?",
+                    conn, params=(tournament,),
+                )
+            return pd.read_sql_query("SELECT * FROM matches", conn)
+
+
 def get_team_statistics(tournament: str) -> List[dict]:
     """Team statistics for a tournament (avg quarter scores, totals, etc.)."""
-    with sqlite3.connect(_db_path()) as conn:
-        df = pd.read_sql_query(
-            "SELECT * FROM matches WHERE tournament = ?",
-            conn,
-            params=(tournament,),
-        )
+    df = _get_halfs_df(tournament)
     if df.empty:
         return []
 
     results = []
-    # Home stats
     for team in df["team_home"].unique():
         home = df[df["team_home"] == team]
         away = df[df["team_away"] == team]
@@ -263,8 +283,7 @@ def get_team_statistics(tournament: str) -> List[dict]:
 
 def get_tournament_summary() -> List[dict]:
     """Summary statistics per tournament."""
-    with sqlite3.connect(_db_path()) as conn:
-        df = pd.read_sql_query("SELECT * FROM matches", conn)
+    df = _get_halfs_df()
     if df.empty:
         return []
 
@@ -293,14 +312,10 @@ def get_tournament_summary() -> List[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Deviations (Отклонения)
+# Deviations
 # ---------------------------------------------------------------------------
 
 def get_team_deviations(tournament: str) -> List[dict]:
-    """Deviation between 2nd and 1st half for each team.
-
-    deviation = (h2_scored + h2_conceded) - (h1_scored + h1_conceded)
-    """
     stats = get_team_statistics(tournament)
     if not stats:
         return []
@@ -322,15 +337,11 @@ def get_team_deviations(tournament: str) -> List[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Wins / Losses (Победы/поражения)
+# Wins / Losses
 # ---------------------------------------------------------------------------
 
 def get_wins_losses(tournament: str) -> List[dict]:
-    """Count wins and losses per team in a tournament."""
-    with sqlite3.connect(_db_path()) as conn:
-        df = pd.read_sql_query(
-            "SELECT * FROM matches WHERE tournament = ?", conn, params=(tournament,)
-        )
+    df = _get_halfs_df(tournament)
     if df.empty:
         return []
 
@@ -364,11 +375,10 @@ def get_wins_losses(tournament: str) -> List[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Quarter distribution (Средние четверти)
+# Quarter distribution
 # ---------------------------------------------------------------------------
 
 def get_quarter_distribution(tournament: str, team1: str, team2: str, total: float) -> Optional[dict]:
-    """Distribute a match total across quarters for a pair of teams."""
     stats = {s["team"]: s for s in get_team_statistics(tournament)}
     if team1 not in stats or team2 not in stats:
         return None
@@ -400,18 +410,14 @@ def get_quarter_distribution(tournament: str, team1: str, team2: str, total: flo
 
 
 # ---------------------------------------------------------------------------
-# Over/Under coefficients (Коэффициенты)
+# Over/Under coefficients
 # ---------------------------------------------------------------------------
 
 def get_coefficients(
     tournament: str, team1: str, team2: str,
     q_threshold: float, h_threshold: float, m_threshold: float,
 ) -> Optional[dict]:
-    """Compute over/under coefficients for a pair of teams."""
-    with sqlite3.connect(_db_path()) as conn:
-        df = pd.read_sql_query(
-            "SELECT * FROM matches WHERE tournament = ?", conn, params=(tournament,)
-        )
+    df = _get_halfs_df(tournament)
     if df.empty:
         return None
 
@@ -451,7 +457,7 @@ def get_coefficients(
         return None
 
     periods = ["q1", "q2", "q3", "q4", "h1", "h2", "match"]
-    result = {"over": {}, "under": {}, "counts": {
+    result: dict = {"over": {}, "under": {}, "counts": {
         "team1": {"name": team1, **counts.get(team1, {})},
         "team2": {"name": team2, **counts.get(team2, {})},
     }}

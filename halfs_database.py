@@ -44,33 +44,33 @@ to avoid ambiguity.
 import os
 import sys
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 
 import pandas as pd
 
-
-def _get_data_dir() -> str:
-    """Папка для хранения баз данных — рядом с .exe / main.py."""
-    if getattr(sys, 'frozen', False):
-        base = os.path.dirname(sys.executable)
-    else:
-        base = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(base, "data")
-    os.makedirs(data_dir, exist_ok=True)
-    return data_dir
+from db_connection import db_connect, is_postgres, adapt_sql, _default_data_dir
 
 
 class HalfsDatabase:
     """Class for storing and analysing basketball half/quarter data."""
 
+    _SCHEMA = 'halfs'
+
     def __init__(self):
-        self.db_path = os.path.join(_get_data_dir(), "halfs.db")
+        self.db_path = os.path.join(_default_data_dir(), "halfs.db")
         self.init_database()
 
+    @contextmanager
+    def _connect(self):
+        """Unified connection: PostgreSQL or SQLite."""
+        with db_connect(schema=self._SCHEMA, sqlite_path=self.db_path) as conn:
+            yield conn
+
     def init_database(self) -> None:
-        """Initialise the SQLite database and create necessary tables."""
-        with sqlite3.connect(self.db_path) as conn:
+        """Initialise the database and create necessary tables."""
+        with self._connect() as conn:
             cur = conn.cursor()
             # Matches table stores per‑period points.  Overtime columns are
             # nullable because many games will not have a fifth period.
@@ -453,7 +453,7 @@ class HalfsDatabase:
                 to_insert.append(parsed)
         if not to_insert:
             return 0
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.executemany(
                 """
@@ -506,7 +506,7 @@ class HalfsDatabase:
                 errors.append(line)
         inserted = 0
         if to_insert:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._connect() as conn:
                 cur = conn.cursor()
                 cur.executemany(
                     """
@@ -552,7 +552,7 @@ class HalfsDatabase:
         """
         if not match_ids:
             return 0
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             # Use executemany for efficiency
             cur.executemany("DELETE FROM matches WHERE id = ?", [(mid,) for mid in match_ids])
@@ -578,7 +578,7 @@ class HalfsDatabase:
         int
             The number of rows deleted.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             if tournament:
                 cur.execute("DELETE FROM matches WHERE tournament = ?", (tournament,))
@@ -616,7 +616,7 @@ class HalfsDatabase:
         # Guard against invalid input or no‑op renames
         if not old_name or not new_name or old_name == new_name:
             return 0
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.execute(
                 "UPDATE matches SET tournament = ? WHERE tournament = ?",
@@ -655,7 +655,7 @@ class HalfsDatabase:
         }
         if field not in allowed_fields:
             raise ValueError(f"Недопустимое поле для обновления: {field}")
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.execute(
                 f"UPDATE matches SET {field} = ? WHERE id = ?",
@@ -770,7 +770,7 @@ class HalfsDatabase:
         if tournament:
             query += " WHERE tournament = ?"
             params.append(tournament)
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             df = pd.read_sql_query(query, conn, params=params)
         return df
 

@@ -1,23 +1,14 @@
-"""Database initialisation for all three SQLite databases.
+"""Database initialisation for all databases.
 
 Call ``init_all_databases()`` once at application startup to ensure that
 all required tables and indices exist.
 """
 
-import sqlite3
-from pathlib import Path
-
-from backend.app.config import get_settings
-
-
-def _db_path(name: str) -> str:
-    settings = get_settings()
-    return str(settings.data_dir / name)
+from backend.app.database.connection import get_halfs_connection, get_royka_connection
 
 
 def init_halfs_db() -> None:
-    path = _db_path("halfs.db")
-    with sqlite3.connect(path) as conn:
+    with get_halfs_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS matches (
@@ -42,8 +33,7 @@ def init_halfs_db() -> None:
 
 
 def init_royka_db() -> None:
-    path = _db_path("royka.db")
-    with sqlite3.connect(path) as conn:
+    with get_royka_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS matches (

@@ -10,8 +10,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Settings loaded from .env file or environment variables."""
 
-    # Database
-    database_url: str = "sqlite:///./data/app.db"
+    # Database — set to postgresql://user:pass@host:5432/db for PostgreSQL
+    database_url: str = ""
 
     # Server
     host: str = "0.0.0.0"
@@ -20,6 +20,11 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
+
+    # Auth
+    auth_username: str = "admin"
+    auth_password: str = "admin"
+    jwt_secret: str = "change-me-in-production-please"
 
     # Telegram (optional)
     telegram_bot_token: str = ""

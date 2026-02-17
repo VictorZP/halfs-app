@@ -1,14 +1,36 @@
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Load .env file BEFORE any other imports that might read DATABASE_URL
+try:
+    from dotenv import load_dotenv
+    _env_path = os.path.join(
+        os.path.dirname(sys.executable) if getattr(sys, 'frozen', False)
+        else os.path.dirname(os.path.abspath(__file__)),
+        '.env'
+    )
+    load_dotenv(_env_path, override=False)
+except ImportError:
+    pass
+
 import json
 import pandas as pd
 import traceback
 import logging
+import shutil
+from contextlib import contextmanager
 from bets_monitor import BetsAPIMonitor
 from telegram_notifier import TelegramNotifier
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from datetime import datetime
+
+# Явный импорт halfs_database на верхнем уровне, чтобы PyInstaller
+# гарантированно включил модуль в сборку .exe
+try:
+    from halfs_database import HalfsDatabase as _HalfsDatabase  # noqa: F401
+except ImportError:
+    _HalfsDatabase = None
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout,
                              QWidget, QFileDialog, QLabel, QLineEdit, QScrollArea,
                              QGridLayout, QMessageBox, QTabWidget, QProgressBar, QTableWidget,
@@ -35,11 +57,15 @@ from fibalivestats_page import FibaLiveStatsPage
 import sqlite3
 from datetime import datetime
 import logging
+
+# Лог-файл рядом с exe/скриптом, а не в рабочей директории
+_log_base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+_log_file = os.path.join(_log_base, 'app.log')
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('app.log', encoding='utf-8'),
+        logging.FileHandler(_log_file, encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -57,6 +83,22 @@ def get_data_dir() -> str:
         base = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(base, "data")
     os.makedirs(data_dir, exist_ok=True)
+
+    # --- Диагностика: записываем путь к data в лог рядом с exe/скриптом ---
+    try:
+        diag_path = os.path.join(base, "data_dir_debug.log")
+        with open(diag_path, "a", encoding="utf-8") as f:
+            import datetime as _dt
+            f.write(f"[{_dt.datetime.now():%Y-%m-%d %H:%M:%S}] "
+                    f"frozen={getattr(sys, 'frozen', False)} | "
+                    f"sys.executable={sys.executable} | "
+                    f"base={base} | "
+                    f"data_dir={data_dir} | "
+                    f"exists={os.path.isdir(data_dir)} | "
+                    f"files={os.listdir(data_dir) if os.path.isdir(data_dir) else 'N/A'}\n")
+    except Exception:
+        pass
+
     return data_dir
 
 
@@ -93,14 +135,23 @@ class ReadOnlyDelegate(QStyledItemDelegate):
     
 class RoykaDatabase:
     """Класс для работы с базой данных раздела Ройка"""
-    
+
+    _SCHEMA = 'royka'
+
     def __init__(self):
         self.db_path = os.path.join(get_data_dir(), "royka.db")
         self.init_database()
-    
+
+    @contextmanager
+    def _connect(self):
+        """Unified connection: PostgreSQL or SQLite."""
+        from db_connection import db_connect
+        with db_connect(schema=self._SCHEMA, sqlite_path=self.db_path) as conn:
+            yield conn
+
     def init_database(self):
         """Инициализация базы данных"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cursor = conn.cursor()
             
             # Создаем таблицу для матчей
@@ -136,7 +187,7 @@ class RoykaDatabase:
     
     def add_matches(self, matches_data):
         """Добавление матчей в базу"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cursor = conn.cursor()
             cursor.executemany("""
                 INSERT INTO matches (
@@ -150,7 +201,7 @@ class RoykaDatabase:
     def get_statistics(self):
         """Получение статистики базы данных"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._connect() as conn:
                 cursor = conn.cursor()
                 
                 # Получаем общее количество записей
@@ -193,7 +244,7 @@ class RoykaDatabase:
     
     def clear_database(self):
         """Очистка всех данных"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM matches")
             conn.commit()
@@ -228,7 +279,7 @@ class RoykaDatabase:
     def normalize_numeric_values(self):
         """Преобразует все числовые значения в базе в корректный формат"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._connect() as conn:
                 cursor = conn.cursor()
                 
                 # Создаем временную таблицу с правильными типами данных
@@ -1488,10 +1539,22 @@ class DatabaseViewDialog(QDialog):
     def __init__(self, db_path, parent=None):
         super().__init__(parent)
         self.db_path = db_path
+        # Определяем schema по имени файла для PostgreSQL
+        self._schema = 'royka'
+        if 'halfs' in str(db_path):
+            self._schema = 'halfs'
+        elif 'cyber' in str(db_path):
+            self._schema = 'cyber'
         self.setup_ui()
-        self.current_sort_column = -1  # Для отслеживания текущей колонки сортировки
-        self.sort_order = Qt.AscendingOrder  # Порядок сортировки по умолчанию
+        self.current_sort_column = -1
+        self.sort_order = Qt.AscendingOrder
         self.load_data()
+
+    @contextmanager
+    def _connect(self):
+        from db_connection import db_connect
+        with db_connect(schema=self._schema, sqlite_path=self.db_path) as conn:
+            yield conn
         
     def setup_ui(self):
         self.setWindowTitle("Просмотр и удаление данных")
@@ -1570,7 +1633,7 @@ class DatabaseViewDialog(QDialog):
     
     def load_data(self, tournament_filter=None):
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._connect() as conn:
                 cursor = conn.cursor()
                 
                 # Получаем список турниров для комбобокса
@@ -1686,7 +1749,7 @@ class DatabaseViewDialog(QDialog):
                         selected_ids.add(int(id_item.text()))
                 
                 # Удаляем записи
-                with sqlite3.connect(self.db_path) as conn:
+                with self._connect() as conn:
                     cursor = conn.cursor()
                     cursor.execute(
                         f"DELETE FROM matches WHERE id IN ({','.join(['?']*len(selected_ids))})",
@@ -1715,7 +1778,7 @@ class RoykaPage(QWidget):
         
         # Проверяем подключение к базе данных
         try:
-            with sqlite3.connect(self.db.db_path) as conn:
+            with self.db._connect() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM matches")
                 count = cursor.fetchone()[0]
@@ -1791,7 +1854,7 @@ class RoykaPage(QWidget):
         """Находит и отображает дубли матчей в базе"""
         try:
             # Получаем данные из базы данных
-            with sqlite3.connect(self.db.db_path) as conn:
+            with self.db._connect() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT id, date, tournament, team_home, team_away, 
@@ -1896,7 +1959,7 @@ class RoykaPage(QWidget):
             )
             
             if reply == QMessageBox.Yes:
-                with sqlite3.connect(self.db.db_path) as conn:
+                with self.db._connect() as conn:
                     cursor = conn.cursor()
                     # Используем параметризованный запрос для безопасного удаления
                     cursor.execute(
@@ -2220,7 +2283,7 @@ class RoykaPage(QWidget):
                 return
 
             # Получаем данные турнира
-            with sqlite3.connect(self.db.db_path) as conn:
+            with self.db._connect() as conn:
                 cursor = conn.cursor()
                 self.add_debug_log("Выполнение запроса к базе данных...")
                 cursor.execute(
@@ -2563,7 +2626,7 @@ class RoykaPage(QWidget):
     def update_tournament_list(self):
         """Обновляет список турниров для автодополнения"""
         try:
-            with sqlite3.connect(self.db.db_path) as conn:
+            with self.db._connect() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT DISTINCT tournament FROM matches ORDER BY tournament")
                 tournaments = [row[0] for row in cursor.fetchall()]
@@ -2742,7 +2805,7 @@ class RoykaPage(QWidget):
                 return
                 
             # Получаем данные турнира
-            with sqlite3.connect(self.db.db_path) as conn:
+            with self.db._connect() as conn:
                 cursor = conn.cursor()
                 self.add_debug_log("Выполнение запроса к базе данных...")
                 
@@ -3110,7 +3173,7 @@ class RoykaPage(QWidget):
             self.debug_log_half_change.clear()
             self.add_debug_log_half_change("=== АНАЛИЗ ВСЕХ ТУРНИРОВ (T2H + Div CHANGE) ===")
 
-            with sqlite3.connect(self.db.db_path) as conn:
+            with self.db._connect() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT DISTINCT tournament FROM matches ORDER BY tournament")
                 tournaments = [row[0] for row in cursor.fetchall()]
@@ -3129,7 +3192,7 @@ class RoykaPage(QWidget):
             }
 
             for tournament_name in tournaments:
-                with sqlite3.connect(self.db.db_path) as conn:
+                with self.db._connect() as conn:
                     cursor = conn.cursor()
                     cursor.execute("""
                         SELECT 
@@ -3877,7 +3940,7 @@ class RoykaPage(QWidget):
                 return
 
             # Получаем данные турнира
-            with sqlite3.connect(self.db. db_path) as conn:
+            with self.db._connect() as conn:
                 cursor = conn.cursor()
                 self.add_debug_log_half("Выполнение запроса к базе данных...")
                 
@@ -3948,7 +4011,7 @@ class RoykaPage(QWidget):
                 QMessageBox.warning(self, "Нет данных", "База данных пуста. Сначала импортируйте данные")
                 return
 
-            with sqlite3.connect(self.db.db_path) as conn:
+            with self.db._connect() as conn:
                 cursor = conn.cursor()
                 self.add_debug_log_half_change("Выполнение запроса к базе данных...")
                 cursor.execute("""
@@ -4252,7 +4315,7 @@ class RoykaPage(QWidget):
             self.add_debug_log_half("=== АНАЛИЗ ВСЕХ ТУРНИРОВ (T2H + Div) ===")
             
             # Получаем все уникальные турниры
-            with sqlite3.connect(self.db.db_path) as conn:
+            with self.db._connect() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT DISTINCT tournament FROM matches ORDER BY tournament")
                 tournaments = [row[0] for row in cursor.fetchall()]
@@ -4272,7 +4335,7 @@ class RoykaPage(QWidget):
             }
             
             for tournament_name in tournaments:
-                with sqlite3.connect(self.db.db_path) as conn:
+                with self.db._connect() as conn:
                     cursor = conn.cursor()
                     cursor.execute("""
                         SELECT 
@@ -5099,10 +5162,9 @@ class RoykaPage(QWidget):
             self.add_debug_log(error_msg)
             
 
-    # В класс RoykaDatabase добавим метод для удаления по турниру и дате:
     def delete_matches(self, tournament=None, date=None):
         """Удаление матчей по турниру и/или дате"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self.db._connect() as conn:
             cursor = conn.cursor()
             
             query = "DELETE FROM matches WHERE 1=1"
@@ -5158,10 +5220,9 @@ class RoykaPage(QWidget):
                 f"Не удалось нормализовать данные: {str(e)}"
             )        
 
-    # В классе RoykaDatabase добавим метод:
-    def delete_matches(self, tournament=None, date=None):
-        """Удаление матчей по турниру и/или дате"""
-        with sqlite3.connect(self.db_path) as conn:
+    def delete_matches_extra(self, tournament=None, date=None):
+        """Удаление матчей по турниру и/или дате (альт.)"""
+        with self.db._connect() as conn:
             cursor = conn.cursor()
             
             query = "DELETE FROM matches WHERE 1=1"
@@ -5773,16 +5834,10 @@ class HalfsDatabasePage(QWidget):
             if current and current in tournaments:
                 idx = self.tournament_combo.findText(current)
                 if idx >= 0:
-                    # Восстанавливаем индекс без смещения; "Все турниры" учтён
                     self.tournament_combo.setCurrentIndex(idx)
             self.tournament_combo.blockSignals(False)
         except Exception:
             pass
-        # Формируем заголовки. Ранее итоговый счёт выводился в одной ячейке
-        # вида "X - Y", что затрудняло сортировку по очкам хозяев и гостей.
-        # Теперь итоговые очки разделены на две колонки, а между ними
-        # добавлена колонка с дефисом для визуального отделения. Это
-        # позволяет сортировать отдельно по очкам хозяев или гостей.
         headers = [
             "Дата", "Турнир", "Команда 1", "Команда 2",
             "Q1 (дом)", "Q1 (гость)", "Q2 (дом)", "Q2 (гость)",
@@ -5790,13 +5845,15 @@ class HalfsDatabasePage(QWidget):
             "ОТ (дом)", "ОТ (гость)",
             "Итог (дом)", "-", "Итог (гость)"
         ]
+        # ВАЖНО: блокируем сигналы и сортировку ДО любых изменений таблицы,
+        # чтобы Qt не переставлял строки во время заполнения и не вызывал
+        # itemChanged, из-за чего данные «рассыпались».
+        self._updating_table = True
+        self.table.blockSignals(True)
+        self.table.setSortingEnabled(False)
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
-        # Очищаем содержимое таблицы перед заполнением, чтобы избежать
-        # остатков прежних данных
         self.table.setRowCount(0)
-        # Подготавливаем строки и запоминаем ID
-        self._updating_table = True  # блокируем on_table_item_changed
         self.loaded_match_ids = []
         rows: List[List] = []
         for _, row in df.iterrows():
@@ -5897,12 +5954,14 @@ class HalfsDatabasePage(QWidget):
                     except Exception:
                         pass
                 self.table.setItem(row_idx, col_idx, item)
-        self._updating_table = False  # разблокировать
+        # Включаем сортировку и сигналы обратно ПОСЛЕ заполнения всех ячеек
+        self.table.setSortingEnabled(True)
+        self.table.blockSignals(False)
+        self._updating_table = False
         # Автоматически подгоняем ширину столбцов под содержимое только для небольших таблиц
         header = self.table.horizontalHeader()
         if header is not None:
             if len(rows) > 10000:
-                # Для больших таблиц используем интерактивный режим, чтобы избежать тормозов
                 header.setSectionResizeMode(QHeaderView.Interactive)
             else:
                 header.setSectionResizeMode(QHeaderView.ResizeToContents)
@@ -6202,6 +6261,58 @@ class HalfsDatabasePage(QWidget):
         btn_box.rejected.connect(dialog.reject)
         dialog.exec_()
 
+    def _recalc_row_totals(self, row: int) -> None:
+        """Пересчитывает итоговые колонки (14 и 16) для указанной строки таблицы."""
+        self._updating_table = True
+        self.table.blockSignals(True)
+        try:
+            home_total = 0
+            away_total = 0
+            # Колонки Q1–Q4: 4,6,8,10 — home; 5,7,9,11 — away
+            # Колонки OT: 12 — home; 13 — away
+            for c in (4, 6, 8, 10, 12):
+                it = self.table.item(row, c)
+                if it and it.text().strip():
+                    try:
+                        home_total += int(it.text().strip())
+                    except ValueError:
+                        pass
+            for c in (5, 7, 9, 11, 13):
+                it = self.table.item(row, c)
+                if it and it.text().strip():
+                    try:
+                        away_total += int(it.text().strip())
+                    except ValueError:
+                        pass
+            # Обновляем ячейки итогов
+            home_item = self.table.item(row, 14)
+            if not home_item:
+                home_item = QTableWidgetItem()
+                self.table.setItem(row, 14, home_item)
+            home_item.setData(Qt.DisplayRole, home_total)
+
+            away_item = self.table.item(row, 16)
+            if not away_item:
+                away_item = QTableWidgetItem()
+                self.table.setItem(row, 16, away_item)
+            away_item.setData(Qt.DisplayRole, away_total)
+
+            # Подсветка победителя
+            winner_color = QColor(60, 179, 113, 80)
+            no_color = QColor(0, 0, 0, 0)
+            if home_total > away_total:
+                home_item.setBackground(winner_color)
+                away_item.setBackground(no_color)
+            elif away_total > home_total:
+                home_item.setBackground(no_color)
+                away_item.setBackground(winner_color)
+            else:
+                home_item.setBackground(no_color)
+                away_item.setBackground(no_color)
+        finally:
+            self.table.blockSignals(False)
+            self._updating_table = False
+
     def on_table_item_changed(self, item: QTableWidgetItem) -> None:
         """Обработчик изменения ячейки таблицы.
 
@@ -6278,13 +6389,11 @@ class HalfsDatabasePage(QWidget):
             self.db.update_match_field(match_id, field_name, value)
         except Exception as exc:
             QMessageBox.critical(self, "Ошибка", f"Не удалось обновить запись: {exc}")
-            # откатить представление в случае ошибки
             self.load_matches()
             return
-        # После успешного обновления перезагружаем таблицу, чтобы отобразить
-        # актуальные значения. Это также решает проблему исчезновения
-        # значений четвертей после редактирования.
-        self.load_matches()
+        # Пересчитываем итоги строки «на месте» без полной перезагрузки,
+        # чтобы данные не пропадали из-за пересортировки таблицы.
+        self._recalc_row_totals(row)
 
 
 # Новая страница статистики для раздела "Половины"
@@ -10907,7 +11016,9 @@ class HalfsQuartersPage(QWidget):
 # Разделы Cybers: база и live
 
 class CybersDatabase:
-    """Хранит базу матчей Cybers в SQLite."""
+    """Хранит базу матчей Cybers в SQLite / PostgreSQL."""
+
+    _SCHEMA = 'cyber'
 
     def __init__(self) -> None:
         self.columns = [
@@ -10927,8 +11038,14 @@ class CybersDatabase:
         self.db_path = os.path.join(get_data_dir(), "cyber_bases.db")
         self.init_database()
 
+    @contextmanager
+    def _connect(self):
+        from db_connection import db_connect
+        with db_connect(schema=self._SCHEMA, sqlite_path=self.db_path) as conn:
+            yield conn
+
     def init_database(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.execute(
                 """
@@ -10997,7 +11114,7 @@ class CybersDatabase:
             )
             for r in rows
         ]
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.executemany(
                 """
@@ -11015,14 +11132,14 @@ class CybersDatabase:
         return len(rows)
 
     def clear(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.execute("DELETE FROM cyber_matches")
             conn.commit()
         self.invalidate_cache()
 
     def get_dataframe(self) -> pd.DataFrame:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             df = pd.read_sql_query(
                 """
                 SELECT id, date, tournament, team, home_away,
@@ -11037,7 +11154,7 @@ class CybersDatabase:
         return df
 
     def get_dataframe_for_tournament(self, tournament: str) -> pd.DataFrame:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             df = pd.read_sql_query(
                 """
                 SELECT id, date, tournament, team, home_away,
@@ -11054,7 +11171,7 @@ class CybersDatabase:
         return df
 
     def load_live_matches(self) -> List[Tuple[str, str, str, float, float]]:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.execute(
                 "SELECT tournament, team1, team2, total, calc_temp FROM cyber_live_matches ORDER BY id ASC"
@@ -11063,7 +11180,7 @@ class CybersDatabase:
         return [(r[0], r[1], r[2], r[3] if r[3] is not None else "", r[4] if r[4] is not None else 0.0) for r in rows]
 
     def save_live_matches(self, rows: List[Tuple[str, str, str, float, float]]) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.execute("DELETE FROM cyber_live_matches")
             if rows:
@@ -11074,7 +11191,7 @@ class CybersDatabase:
             conn.commit()
 
     def clear_live_matches(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.execute("DELETE FROM cyber_live_matches")
             conn.commit()
@@ -11107,7 +11224,7 @@ class CybersDatabase:
         return duplicates
 
     def get_tournaments(self) -> List[str]:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.execute("SELECT DISTINCT tournament FROM cyber_matches WHERE tournament IS NOT NULL AND tournament <> ''")
             rows = cur.fetchall()
@@ -11116,7 +11233,7 @@ class CybersDatabase:
     def delete_rows(self, ids: List[int]) -> int:
         if not ids:
             return 0
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.executemany("DELETE FROM cyber_matches WHERE id = ?", [(i,) for i in ids])
             conn.commit()
@@ -11127,7 +11244,7 @@ class CybersDatabase:
     def delete_tournament(self, tournament: str) -> int:
         if not tournament:
             return 0
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.execute("DELETE FROM cyber_matches WHERE tournament = ?", (tournament,))
             conn.commit()
@@ -11140,7 +11257,7 @@ class CybersDatabase:
             return
         if field not in self.columns:
             return
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cur = conn.cursor()
             cur.execute(f"UPDATE cyber_matches SET {field} = ? WHERE id = ?", (value, row_id))
             conn.commit()
@@ -11150,6 +11267,7 @@ class CybersDatabase:
         self._enriched_cache = None
         self._aggregate_cache = {}
         self._tournament_avg = {}
+        self._team_tournament_avg = {}
         self._tournament_predict_cache = {}
 
     @staticmethod
@@ -11182,7 +11300,7 @@ class CybersDatabase:
                 diffs.append(0)
         df["pair_diff"] = diffs
 
-        # Средние по турнирам для Controls и AttackKEF
+        # Средние по турнирам для Controls и AttackKEF (фолбэк)
         tour_stats = df.groupby("tournament_key", dropna=True).agg(
             avg_controls=("controls", "mean"),
             avg_points=("points", "mean")
@@ -11197,10 +11315,26 @@ class CybersDatabase:
             except Exception:
                 avg_points = 0.0
             attack_avg = (avg_points / avg_controls) if avg_controls else 0.0
-            # В Excel значения округляются в сводной статистике, берём такие же
             avg_controls = round(avg_controls, 2)
             attack_avg = round(attack_avg, 2)
             self._tournament_avg[str(t)] = (avg_controls, attack_avg)
+
+        # Средние по командам в рамках турнира (для попарного расчёта INDEX)
+        self._team_tournament_avg = {}
+        team_tour_stats = df.groupby(["tournament_key", "team_key"], dropna=True).agg(
+            avg_controls=("controls", "mean"),
+            avg_points=("points", "mean")
+        )
+        for (t, team), row in team_tour_stats.iterrows():
+            try:
+                avg_c = float(row.get("avg_controls") or 0)
+            except Exception:
+                avg_c = 0.0
+            try:
+                avg_p = float(row.get("avg_points") or 0)
+            except Exception:
+                avg_p = 0.0
+            self._team_tournament_avg[(str(t), str(team))] = (round(avg_c, 2), round(avg_p, 2))
 
         # Index
         def compute_index(row):
@@ -11217,7 +11351,20 @@ class CybersDatabase:
             if status == "FS":
                 idx -= 3.0
 
-            avg_controls, attack_avg = self._tournament_avg.get(tournament_key, (0.0, 0.0))
+            # Попарные средние: (среднее команды + среднее оппонента) / 2
+            team_key = str(row.get("team_key") or "")
+            opponent_key = str(row.get("opponent_key") or "")
+            team_avg = self._team_tournament_avg.get((tournament_key, team_key), None)
+            opp_avg = self._team_tournament_avg.get((tournament_key, opponent_key), None)
+
+            if team_avg is not None and opp_avg is not None and team_avg[0] > 0 and opp_avg[0] > 0:
+                avg_controls = round((team_avg[0] + opp_avg[0]) / 2, 2)
+                avg_points = round((team_avg[1] + opp_avg[1]) / 2, 2)
+                attack_avg = round(avg_points / avg_controls, 2) if avg_controls else 0.0
+            else:
+                # Фолбэк: среднее по турниру
+                avg_controls, attack_avg = self._tournament_avg.get(tournament_key, (0.0, 0.0))
+
             if avg_controls > 0:
                 low_ctrl = avg_controls * 0.9
                 high_ctrl = avg_controls * 1.1
@@ -12847,10 +12994,10 @@ class CyberLivePage(QWidget):
         self.lines_layout.addLayout(btn_layout)
 
         self.lines_table = QTableWidget()
-        self.lines_table.setColumnCount(10)
+        self.lines_table.setColumnCount(11)
         self.lines_table.setHorizontalHeaderLabels([
             "Турнир", "Команда 1", "Команда 2", "Тотал", "TEMP",
-            "Predict", "UNDER", "OVER", "CalcTEMP", "T2H"
+            "Predict", "UNDER", "OVER", "CalcTEMP", "T2H", "T2H Predict"
         ])
         self.lines_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.lines_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -12867,6 +13014,13 @@ class CyberLivePage(QWidget):
             "QTableWidget::item {"
             "selection-background-color: #2a2a2e;"
             "selection-color: #E0E0E0;"
+            "padding: 4px;"
+            "}"
+            "QTableWidget QLineEdit {"
+            "color: #E0E0E0;"
+            "background-color: #23232a;"
+            "border: 1px solid #5a5aff;"
+            "padding: 4px;"
             "}"
         )
         self.lines_table.itemChanged.connect(self.on_lines_item_changed)
@@ -13012,12 +13166,18 @@ class CyberLivePage(QWidget):
             team1 = str(cleaned[1]).strip()
             team2 = str(cleaned[2]).strip()
             total = ""
-            for v in cleaned[3:]:
+            # 5 столбцов: Турнир Команда1 Команда2 Фора Тотал
+            # Пропускаем 4-й (Фора, index 3), берём 5-й (Тотал, index 4)
+            if len(cleaned) >= 5:
                 try:
-                    total = float(str(v).replace(",", "."))
-                    break
+                    total = float(str(cleaned[4]).replace(",", "."))
                 except Exception:
-                    continue
+                    total = ""
+            elif len(cleaned) >= 4:
+                try:
+                    total = float(str(cleaned[3]).replace(",", "."))
+                except Exception:
+                    total = ""
             parsed.append((tournament, team1, team2, total, 0.0))
 
         existing = self.get_lines_rows()
@@ -13046,12 +13206,16 @@ class CyberLivePage(QWidget):
         else:
             t2h = 0.0
 
+        # T2H Predict: корректировка T2H на процент отклонения Predict от Total
+        t2h_predict = self._calc_t2h_predict(pre_total, predict, t2h)
+
         values = [
             tournament, team1, team2,
             self.format_num(pre_total),
             self.format_num(temp), self.format_num(predict), self.format_num(under),
             self.format_num(over),
-            self.format_num(calc_temp), self.format_num(t2h)
+            self.format_num(calc_temp), self.format_num(t2h),
+            self._format_t2h_predict(t2h_predict)
         ]
         for col_idx, val in enumerate(values):
             item = QTableWidgetItem(str(val))
@@ -13065,7 +13229,36 @@ class CyberLivePage(QWidget):
                 self.apply_over_style(item)
             if col_idx == 8:
                 item.setBackground(QColor("#1a2b45"))
+            if col_idx == 10:
+                item.setBackground(QColor("#2b1a3d"))
             self.lines_table.setItem(row_idx, col_idx, item)
+
+    def _calc_t2h_predict(self, pre_total, predict, t2h) -> str:
+        """Рассчитывает T2H Predict: T2H скорректированный на % отклонения Predict от Total.
+
+        Формула: percent = (predict - total) / total; t2h_predict = t2h * (1 + percent)
+        Показывается только если |predict - total| >= 3.
+        """
+        try:
+            pre_total_f = float(pre_total) if pre_total != "" else 0.0
+            predict_f = float(predict) if predict != "" else 0.0
+            t2h_f = float(t2h) if t2h != "" else 0.0
+        except Exception:
+            return ""
+        if pre_total_f == 0 or predict_f == 0 or t2h_f == 0:
+            return ""
+        if abs(predict_f - pre_total_f) < 3:
+            return ""
+        pct = (predict_f - pre_total_f) / pre_total_f
+        return round(t2h_f * (1 + pct), 2)
+
+    def _format_t2h_predict(self, value) -> str:
+        if value == "" or value is None:
+            return ""
+        try:
+            return f"{float(value):.1f}"
+        except Exception:
+            return str(value)
 
     def on_lines_item_changed(self, item: QTableWidgetItem) -> None:
         if self._updating_lines:
@@ -13098,12 +13291,22 @@ class CyberLivePage(QWidget):
         else:
             t2h = 0.0
 
+        t2h_predict = self._calc_t2h_predict(pre_total, predict, t2h)
+
         self.lines_table.blockSignals(True)
         self.lines_table.item(row, 4).setText(self.format_num(temp))
         self.lines_table.item(row, 5).setText(self.format_num(predict))
         self.lines_table.item(row, 6).setText(self.format_num(under))
         self.lines_table.item(row, 7).setText(self.format_num(over))
         self.lines_table.item(row, 9).setText(self.format_num(t2h))
+        # T2H Predict
+        t2h_pred_item = self.lines_table.item(row, 10)
+        if t2h_pred_item is None:
+            t2h_pred_item = QTableWidgetItem()
+            t2h_pred_item.setFlags(t2h_pred_item.flags() & ~Qt.ItemIsEditable)
+            t2h_pred_item.setBackground(QColor("#2b1a3d"))
+            self.lines_table.setItem(row, 10, t2h_pred_item)
+        t2h_pred_item.setText(self._format_t2h_predict(t2h_predict))
         self.apply_under_style(self.lines_table.item(row, 6))
         self.apply_over_style(self.lines_table.item(row, 7))
         self.lines_table.blockSignals(False)
@@ -13208,11 +13411,20 @@ class CyberLivePage(QWidget):
                 t2h = z * ((temp + calc_temp) / 2.0)
             else:
                 t2h = 0.0
+            t2h_predict = self._calc_t2h_predict(pre_total, predict, t2h)
             self.lines_table.item(r, 4).setText(self.format_num(temp))
             self.lines_table.item(r, 5).setText(self.format_num(predict))
             self.lines_table.item(r, 6).setText(self.format_num(under))
             self.lines_table.item(r, 7).setText(self.format_num(over))
             self.lines_table.item(r, 9).setText(self.format_num(t2h))
+            # T2H Predict
+            t2h_pred_item = self.lines_table.item(r, 10)
+            if t2h_pred_item is None:
+                t2h_pred_item = QTableWidgetItem()
+                t2h_pred_item.setFlags(t2h_pred_item.flags() & ~Qt.ItemIsEditable)
+                t2h_pred_item.setBackground(QColor("#2b1a3d"))
+                self.lines_table.setItem(r, 10, t2h_pred_item)
+            t2h_pred_item.setText(self._format_t2h_predict(t2h_predict))
             self.apply_under_style(self.lines_table.item(r, 6))
             self.apply_over_style(self.lines_table.item(r, 7))
             self.update_predict_row(r, tournament, team1, team2)
@@ -14052,7 +14264,9 @@ class SortHalvesPage(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Excel Analyzer Pro")
+        # Показываем путь к данным в заголовке, чтобы легко диагностировать проблемы
+        data_dir = get_data_dir()
+        self.setWindowTitle(f"Excel Analyzer Pro  —  data: {data_dir}")
         
         # Устанавливаем нормальный размер окна по умолчанию
         self.resize(1400, 800)
@@ -14106,51 +14320,27 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.sidebar)
         main_layout.addWidget(content_container)
         
-        # Создание страниц
-        # Создаём только необходимые страницы
+        # Создание страниц — ленивая загрузка
+        # Только первая страница (Ройка) создаётся сразу, остальные — по требованию
         self.royka_page = RoykaPage()
-        try:
-            self.halfs_database_page = HalfsDatabasePage()
-        except Exception:
-            self.halfs_database_page = QWidget()
-        try:
-            self.halfs_statistics_page = HalfsStatisticsPage()
-        except Exception:
-            self.halfs_statistics_page = QWidget()
-        try:
-            self.tournament_summary_page = TournamentSummaryPage()
-        except Exception:
-            self.tournament_summary_page = QWidget()
-        # Новая страница: Анализ половин
-        try:
-            self.halfs_analysis_page = HalfsAnalysisPage()
-        except Exception:
-            self.halfs_analysis_page = QWidget()
-        # Разделы Cybers
-        try:
-            self.cybers_db = CybersDatabase()
-            self.cybers_bases_page = CybersBasesPage(self.cybers_db)
-            self.cyber_live_page = CyberLivePage(self.cybers_db)
-            self.cybers_bases_page.live_page = self.cyber_live_page
-        except Exception:
-            self.cybers_db = None
-            self.cybers_bases_page = QWidget()
-            self.cyber_live_page = QWidget()
-        # Добавление страниц в стек. Порядок соответствует пунктам бокового меню
-        self.page_stack.addWidget(self.royka_page)               # 0 – Ройка
-        self.page_stack.addWidget(self.halfs_database_page)      # 1 – База половин
-        self.page_stack.addWidget(self.halfs_statistics_page)    # 2 – Статистика из половин
-        self.page_stack.addWidget(self.tournament_summary_page)  # 3 – Сводная таблица
-        self.page_stack.addWidget(self.halfs_analysis_page)      # 4 – Анализ половин
-        self.page_stack.addWidget(self.cybers_bases_page)        # 5 – Cybers Bases
-        self.page_stack.addWidget(self.cyber_live_page)          # 6 – Cyber LIVE
+        self.cybers_db = None  # инициализируется лениво
 
-        # Страница сортировки половин: добавляем после Cyber LIVE
-        try:
-            self.sort_halves_page = SortHalvesPage()
-        except Exception:
-            self.sort_halves_page = QWidget()
-        self.page_stack.addWidget(self.sort_halves_page)      # 7 – Сортировка половин
+        # Фабрики для создания страниц по требованию
+        self._page_factories = {
+            1: self._create_halfs_database_page,
+            2: self._create_halfs_statistics_page,
+            3: self._create_tournament_summary_page,
+            4: self._create_halfs_analysis_page,
+            5: self._create_cybers_bases_page,
+            6: self._create_cyber_live_page,
+            7: self._create_sort_halves_page,
+        }
+        self._pages_created = {0}  # Ройка уже создана
+
+        # Добавляем страницы-заглушки в стек
+        self.page_stack.addWidget(self.royka_page)               # 0 – Ройка
+        for i in range(1, 8):
+            self.page_stack.addWidget(QWidget())                 # заглушки
 
         # Инициализируем Telegram
         self.telegram = TelegramNotifier(
@@ -14302,13 +14492,95 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
     
+    # --- Фабрики для ленивого создания страниц ---
+    def _ensure_cybers_db(self):
+        if self.cybers_db is None:
+            self.cybers_db = CybersDatabase()
+
+    def _create_halfs_database_page(self):
+        return HalfsDatabasePage()
+
+    def _create_halfs_statistics_page(self):
+        return HalfsStatisticsPage()
+
+    def _create_tournament_summary_page(self):
+        return TournamentSummaryPage()
+
+    def _create_halfs_analysis_page(self):
+        return HalfsAnalysisPage()
+
+    def _create_cybers_bases_page(self):
+        self._ensure_cybers_db()
+        page = CybersBasesPage(self.cybers_db)
+        # Если Cyber LIVE уже создана — привязать
+        if 6 in self._pages_created:
+            page.live_page = self.page_stack.widget(6)
+        return page
+
+    def _create_cyber_live_page(self):
+        self._ensure_cybers_db()
+        page = CyberLivePage(self.cybers_db)
+        # Если Cybers Bases уже создана — привязать
+        if 5 in self._pages_created:
+            self.page_stack.widget(5).live_page = page
+        return page
+
+    def _create_sort_halves_page(self):
+        return SortHalvesPage()
+
+    def _load_page_if_needed(self, index: int) -> None:
+        """Создаёт страницу по требованию, заменяя заглушку."""
+        if index in self._pages_created:
+            return
+        factory = self._page_factories.get(index)
+        if factory is None:
+            return
+        try:
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            page = factory()
+        except Exception as exc:
+            logging.error(f"Ошибка при создании страницы (index={index}): {exc}", exc_info=True)
+            # Показываем пользователю, что именно пошло не так
+            error_page = QWidget()
+            err_layout = QVBoxLayout(error_page)
+            err_label = QLabel(
+                f"Не удалось загрузить раздел.\n\n"
+                f"Ошибка: {exc}\n\n"
+                f"Путь к данным: {get_data_dir()}"
+            )
+            err_label.setWordWrap(True)
+            err_label.setAlignment(Qt.AlignCenter)
+            err_layout.addWidget(err_label)
+            page = error_page
+        finally:
+            QApplication.restoreOverrideCursor()
+        # Заменяем заглушку настоящей страницей
+        old_widget = self.page_stack.widget(index)
+        self.page_stack.removeWidget(old_widget)
+        old_widget.deleteLater()
+        self.page_stack.insertWidget(index, page)
+        self._pages_created.add(index)
+        # Сохраняем ссылки для обратной совместимости
+        attr_map = {
+            1: "halfs_database_page",
+            2: "halfs_statistics_page",
+            3: "tournament_summary_page",
+            4: "halfs_analysis_page",
+            5: "cybers_bases_page",
+            6: "cyber_live_page",
+            7: "sort_halves_page",
+        }
+        attr = attr_map.get(index)
+        if attr:
+            setattr(self, attr, page)
+
     def on_navigation_clicked(self, item):
         """Обработка клика по элементу навигации"""
         index = self.sidebar.row(item)
+        self._load_page_if_needed(index)
         self.page_stack.setCurrentIndex(index)
         # Подгоняем ширину столбцов всех таблиц под содержимое при смене раздела
         try:
-            # Используем QTimer.singleShot, чтобы дождаться завершения рендеринга таблиц
             QTimer.singleShot(0, self.adjust_table_columns)
         except Exception:
             pass

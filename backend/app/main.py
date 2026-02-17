@@ -9,18 +9,18 @@ Or from the project root:
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.app.auth import require_auth
 from backend.app.config import get_settings
 from backend.app.database.models import init_all_databases
-from backend.app.routers import halfs, royka
+from backend.app.routers import auth, halfs, royka
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown."""
-    # Initialise databases on startup
     init_all_databases()
     yield
 
@@ -46,9 +46,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register routers
-app.include_router(halfs.router, prefix="/api")
-app.include_router(royka.router, prefix="/api")
+# Auth router (public — no token required for login)
+app.include_router(auth.router, prefix="/api")
+
+# Protected routers — all endpoints require a valid JWT token
+app.include_router(
+    halfs.router,
+    prefix="/api",
+    dependencies=[Depends(require_auth)],
+)
+app.include_router(
+    royka.router,
+    prefix="/api",
+    dependencies=[Depends(require_auth)],
+)
 
 
 @app.get("/")

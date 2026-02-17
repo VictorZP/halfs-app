@@ -1,14 +1,16 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu } from 'antd';
+import { Layout, Menu, Button, Tooltip } from 'antd';
 import {
   BarChartOutlined,
   DatabaseOutlined,
   TableOutlined,
   LineChartOutlined,
   FundOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons';
 
+import LoginPage from './pages/LoginPage';
 import RoykaPage from './pages/RoykaPage';
 import HalfsBasePage from './pages/HalfsBasePage';
 import HalfsStatsPage from './pages/HalfsStatsPage';
@@ -18,16 +20,30 @@ import HomePage from './pages/HomePage';
 const { Sider, Content, Header } = Layout;
 
 const menuItems = [
-  { key: '/',             icon: <BarChartOutlined />,       label: 'Главная' },
-  { key: '/royka',        icon: <FundOutlined />,           label: 'Ройка' },
-  { key: '/halfs',        icon: <DatabaseOutlined />,       label: 'База половин' },
-  { key: '/halfs-stats',  icon: <LineChartOutlined />,      label: 'Статистика из половин' },
-  { key: '/summary',      icon: <TableOutlined />,          label: 'Сводная таблица' },
+  { key: '/',             icon: <BarChartOutlined />,  label: 'Главная' },
+  { key: '/royka',        icon: <FundOutlined />,      label: 'Ройка' },
+  { key: '/halfs',        icon: <DatabaseOutlined />,  label: 'База половин' },
+  { key: '/halfs-stats',  icon: <LineChartOutlined />, label: 'Статистика из половин' },
+  { key: '/summary',      icon: <TableOutlined />,     label: 'Сводная таблица' },
 ];
 
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [token, setToken] = useState(() => localStorage.getItem('token'));
+
+  const handleLogin = useCallback((newToken) => {
+    setToken(newToken);
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('token');
+    setToken(null);
+  }, []);
+
+  if (!token) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -65,6 +81,19 @@ export default function App() {
           onClick={({ key }) => navigate(key)}
           style={{ background: 'transparent', borderRight: 'none' }}
         />
+
+        <div style={{ position: 'absolute', bottom: 16, left: 0, width: '100%', textAlign: 'center' }}>
+          <Tooltip title="Выйти">
+            <Button
+              type="text"
+              icon={<LogoutOutlined />}
+              onClick={handleLogout}
+              style={{ color: '#888' }}
+            >
+              Выйти
+            </Button>
+          </Tooltip>
+        </div>
       </Sider>
 
       <Layout style={{ marginLeft: 220 }}>
