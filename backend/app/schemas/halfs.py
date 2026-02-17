@@ -10,16 +10,17 @@ class HalfsMatch(BaseModel):
     tournament: str = ""
     team_home: str = ""
     team_away: str = ""
-    q1_home: int = 0
-    q1_away: int = 0
-    q2_home: int = 0
-    q2_away: int = 0
-    q3_home: int = 0
-    q3_away: int = 0
-    q4_home: int = 0
-    q4_away: int = 0
-    ot_home: int = 0
-    ot_away: int = 0
+    q1_home: Optional[int] = 0
+    q1_away: Optional[int] = 0
+    q2_home: Optional[int] = 0
+    q2_away: Optional[int] = 0
+    q3_home: Optional[int] = 0
+    q3_away: Optional[int] = 0
+    q4_home: Optional[int] = 0
+    q4_away: Optional[int] = 0
+    ot_home: Optional[int] = 0
+    ot_away: Optional[int] = 0
+    created_at: Optional[str] = None
 
 
 class ImportRequest(BaseModel):
