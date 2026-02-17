@@ -1,0 +1,10 @@
+server {
+    listen ${PORT};
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # SPA — redirect all routes to index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
