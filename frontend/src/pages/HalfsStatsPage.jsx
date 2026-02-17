@@ -153,19 +153,32 @@ function DeviationsTab() {
   const [selected, setSelected] = useState(null);
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [team1, setTeam1] = useState('');
+  const [team2, setTeam2] = useState('');
 
   useEffect(() => {
     halfs.getTournaments().then(r => setTournaments(r.data)).catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (!selected) { setData([]); return; }
+    if (!selected) { setData([]); setTeam1(''); setTeam2(''); return; }
     setLoading(true);
     halfs.getDeviations(selected)
       .then(r => setData(r.data))
       .catch(() => message.error('Ошибка'))
       .finally(() => setLoading(false));
   }, [selected]);
+
+  const teamOptions = data.map(d => ({ value: d.team }));
+
+  const t1Data = data.find(d => d.team === team1);
+  const t2Data = data.find(d => d.team === team2);
+  const pairSummary = (t1Data && t2Data) ? {
+    h1: ((t1Data.h1_total + t2Data.h1_total) / 2).toFixed(1),
+    h2: ((t1Data.h2_total + t2Data.h2_total) / 2).toFixed(1),
+    dev: ((t1Data.deviation + t2Data.deviation) / 2).toFixed(1),
+    avg: ((t1Data.average_total + t2Data.average_total) / 2).toFixed(1),
+  } : null;
 
   const columns = [
     { title: 'Команда', dataIndex: 'team', key: 'team', width: 160, sorter: (a, b) => a.team.localeCompare(b.team) },
@@ -188,9 +201,41 @@ function DeviationsTab() {
         options={tournaments.map(t => ({ label: t, value: t }))}
         filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
       />
-      {data.length > 0 ? (
-        <Table dataSource={data} columns={columns} rowKey="team" size="small" pagination={false} loading={loading} />
-      ) : !loading && <Empty description="Выберите турнир" />}
+
+      {data.length > 0 && (
+        <>
+          <Card size="small" style={{ background: '#1a1a2e', border: '1px solid #333' }}>
+            <Space wrap>
+              <AutoComplete options={teamOptions} style={{ width: 180 }} placeholder="Команда 1"
+                value={team1} onChange={setTeam1}
+                filterOption={(input, option) => option.value.toLowerCase().includes(input.toLowerCase())}
+              />
+              <AutoComplete options={teamOptions} style={{ width: 180 }} placeholder="Команда 2"
+                value={team2} onChange={setTeam2}
+                filterOption={(input, option) => option.value.toLowerCase().includes(input.toLowerCase())}
+              />
+            </Space>
+            {pairSummary && (
+              <Descriptions column={{ xs: 2, sm: 4 }} size="small" bordered style={{ marginTop: 12 }}
+                labelStyle={{ color: '#999', background: '#16213e' }}
+                contentStyle={{ color: '#e0e0e0', background: '#1a1a2e', fontWeight: 600 }}
+              >
+                <Descriptions.Item label="Ср. 1H">{pairSummary.h1}</Descriptions.Item>
+                <Descriptions.Item label="Ср. 2H">{pairSummary.h2}</Descriptions.Item>
+                <Descriptions.Item label="Ср. откл.">
+                  <span style={{ color: pairSummary.dev > 0 ? '#52c41a' : pairSummary.dev < 0 ? '#ff4d4f' : '#e0e0e0' }}>
+                    {pairSummary.dev > 0 ? '+' : ''}{pairSummary.dev}
+                  </span>
+                </Descriptions.Item>
+                <Descriptions.Item label="Ср. тотал">{pairSummary.avg}</Descriptions.Item>
+              </Descriptions>
+            )}
+          </Card>
+
+          <Table dataSource={data} columns={columns} rowKey="team" size="small" pagination={false} loading={loading} />
+        </>
+      )}
+      {!data.length && !loading && <Empty description="Выберите турнир" />}
     </Space>
   );
 }
