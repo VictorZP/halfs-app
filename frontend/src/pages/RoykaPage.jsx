@@ -17,6 +17,15 @@ import { royka } from '../api/client';
 
 const toNum = (v) => (v == null || v === '' ? '' : Number(v).toFixed(1));
 const toRoi = (v) => `${Number(v || 0).toFixed(1)}%`;
+const winColor = (v) => (v > 0 ? '#52c41a' : v < 0 ? '#ff4d4f' : '#e0e0e0');
+const renderSigned = (v) => {
+  const n = Number(v || 0);
+  return <span style={{ color: winColor(n), fontWeight: 600 }}>{n > 0 ? `+${n}` : n}</span>;
+};
+const renderRoiColored = (v) => {
+  const n = Number(v || 0);
+  return <span style={{ color: winColor(n), fontWeight: 600 }}>{toRoi(n)}</span>;
+};
 
 function HalfSummaryTable({ stats }) {
   const rows = ['OVER', 'UNDER', 'TOTAL'].map((k) => {
@@ -197,27 +206,27 @@ export default function RoykaPage() {
   const diffColumns = [
     { title: 'Разница', dataIndex: 'difference', width: 80 },
     { title: 'Общее кол-во', dataIndex: 'overall_count', width: 110 },
-    { title: 'Общее WIN', dataIndex: 'overall_win', width: 100 },
-    { title: 'Общее ROI', dataIndex: 'overall_roi', width: 90, render: toRoi },
+    { title: 'Общее WIN', dataIndex: 'overall_win', width: 100, render: renderSigned },
+    { title: 'Общее ROI', dataIndex: 'overall_roi', width: 90, render: renderRoiColored },
     { title: 'OVER кол-во', dataIndex: 'over_count', width: 110 },
-    { title: 'OVER WIN', dataIndex: 'over_win', width: 90 },
-    { title: 'OVER ROI', dataIndex: 'over_roi', width: 90, render: toRoi },
+    { title: 'OVER WIN', dataIndex: 'over_win', width: 90, render: renderSigned },
+    { title: 'OVER ROI', dataIndex: 'over_roi', width: 90, render: renderRoiColored },
     { title: 'UNDER кол-во', dataIndex: 'under_count', width: 110 },
-    { title: 'UNDER WIN', dataIndex: 'under_win', width: 100 },
-    { title: 'UNDER ROI', dataIndex: 'under_roi', width: 95, render: toRoi },
+    { title: 'UNDER WIN', dataIndex: 'under_win', width: 100, render: renderSigned },
+    { title: 'UNDER ROI', dataIndex: 'under_roi', width: 95, render: renderRoiColored },
   ];
 
   const rangeColumns = [
     { title: 'Диапазон', dataIndex: 'range', width: 100 },
     { title: 'Общее кол-во', dataIndex: 'overall_count', width: 110 },
-    { title: 'Общее WIN', dataIndex: 'overall_win', width: 100 },
-    { title: 'Общее ROI', dataIndex: 'overall_roi', width: 90, render: toRoi },
+    { title: 'Общее WIN', dataIndex: 'overall_win', width: 100, render: renderSigned },
+    { title: 'Общее ROI', dataIndex: 'overall_roi', width: 90, render: renderRoiColored },
     { title: 'OVER кол-во', dataIndex: 'over_count', width: 110 },
-    { title: 'OVER WIN', dataIndex: 'over_win', width: 90 },
-    { title: 'OVER ROI', dataIndex: 'over_roi', width: 90, render: toRoi },
+    { title: 'OVER WIN', dataIndex: 'over_win', width: 90, render: renderSigned },
+    { title: 'OVER ROI', dataIndex: 'over_roi', width: 90, render: renderRoiColored },
     { title: 'UNDER кол-во', dataIndex: 'under_count', width: 110 },
-    { title: 'UNDER WIN', dataIndex: 'under_win', width: 100 },
-    { title: 'UNDER ROI', dataIndex: 'under_roi', width: 95, render: toRoi },
+    { title: 'UNDER WIN', dataIndex: 'under_win', width: 100, render: renderSigned },
+    { title: 'UNDER ROI', dataIndex: 'under_roi', width: 95, render: renderRoiColored },
   ];
 
   const tournamentsHalfColumns = [
