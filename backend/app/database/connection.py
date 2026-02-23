@@ -1,6 +1,6 @@
 """Database connection helpers.
 
-Both databases (halfs, royka) use SQLite locally or PostgreSQL on Railway.
+All databases (halfs, royka, cyber) use SQLite locally or PostgreSQL on Railway.
 The ``db_connect`` context manager from ``db_connection`` handles the switch
 based on the ``DATABASE_URL`` environment variable.
 """
@@ -33,4 +33,10 @@ def get_halfs_connection() -> Generator:
 @contextmanager
 def get_royka_connection() -> Generator:
     with db_connect(schema='royka', sqlite_path=_sqlite_path("royka.db")) as conn:
+        yield conn
+
+
+@contextmanager
+def get_cyber_connection() -> Generator:
+    with db_connect(schema='cyber', sqlite_path=_sqlite_path("cyber_bases.db")) as conn:
         yield conn

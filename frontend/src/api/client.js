@@ -76,4 +76,22 @@ export const royka = {
   analyzeAll: () => client.get('/royka/analysis'),
 };
 
+// ───── Cyber ─────
+
+export const cyber = {
+  getMatches: (tournament, limit = 10000) =>
+    client.get('/cyber/matches', { params: { tournament, limit } }),
+  importMatches: (rawText) => client.post('/cyber/matches/import', { raw_text: rawText }),
+  deleteMatches: (ids) => client.delete('/cyber/matches', { data: { ids } }),
+  clearAll: () => client.delete('/cyber/matches/all'),
+  getTournaments: () => client.get('/cyber/tournaments'),
+  getStatistics: () => client.get('/cyber/statistics'),
+  getSummary: (tournament) => client.get('/cyber/summary', { params: { tournament } }),
+  getPredict: (tournament, team1, team2) =>
+    client.get('/cyber/predict', { params: { tournament, team1, team2 } }),
+  getLive: () => client.get('/cyber/live'),
+  saveLive: (rows) => client.put('/cyber/live', rows),
+  clearLive: () => client.delete('/cyber/live'),
+};
+
 export default client;

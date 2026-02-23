@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.auth import require_auth
 from backend.app.config import get_settings
 from backend.app.database.models import init_all_databases
-from backend.app.routers import auth, halfs, royka
+from backend.app.routers import auth, cyber, halfs, royka
 
 
 @asynccontextmanager
@@ -31,7 +31,7 @@ app = FastAPI(
     title="Excel Analyzer Pro — Web API",
     description=(
         "REST API for basketball statistics analysis.\n\n"
-        "Sections: **Halfs** (База половин), **Royka** (Ройка)."
+        "Sections: **Halfs** (База половин), **Royka** (Ройка), **Cyber** (Cybers Bases, Cyber LIVE)."
     ),
     version="1.0.0",
     lifespan=lifespan,
@@ -57,6 +57,11 @@ app.include_router(
 )
 app.include_router(
     royka.router,
+    prefix="/api",
+    dependencies=[Depends(require_auth)],
+)
+app.include_router(
+    cyber.router,
     prefix="/api",
     dependencies=[Depends(require_auth)],
 )

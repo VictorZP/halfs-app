@@ -7,6 +7,8 @@ import {
   TableOutlined,
   LineChartOutlined,
   FundOutlined,
+  RadarChartOutlined,
+  ThunderboltOutlined,
   LogoutOutlined,
   MenuOutlined,
 } from '@ant-design/icons';
@@ -17,6 +19,8 @@ import HalfsBasePage from './pages/HalfsBasePage';
 import HalfsStatsPage from './pages/HalfsStatsPage';
 import TournamentSummaryPage from './pages/TournamentSummaryPage';
 import HomePage from './pages/HomePage';
+import CybersBasePage from './pages/CybersBasePage';
+import CyberLivePage from './pages/CyberLivePage';
 
 const { Content, Header, Sider } = Layout;
 const { useBreakpoint } = Grid;
@@ -27,6 +31,8 @@ const menuItems = [
   { key: '/halfs',        icon: <DatabaseOutlined />,  label: 'База половин' },
   { key: '/halfs-stats',  icon: <LineChartOutlined />, label: 'Статистика из половин' },
   { key: '/summary',      icon: <TableOutlined />,     label: 'Сводная таблица' },
+  { key: '/cybers',       icon: <RadarChartOutlined />, label: 'Cybers Bases' },
+  { key: '/cyber-live',   icon: <ThunderboltOutlined />, label: 'Cyber LIVE' },
 ];
 
 function SideMenu({ selectedKey, onSelect, onLogout }) {
@@ -158,6 +164,8 @@ export default function App() {
             <Route path="/halfs" element={<HalfsBasePage />} />
             <Route path="/halfs-stats" element={<HalfsStatsPage />} />
             <Route path="/summary" element={<TournamentSummaryPage />} />
+            <Route path="/cybers" element={<CybersBasePage />} />
+            <Route path="/cyber-live" element={<CyberLivePage />} />
           </Routes>
         </Content>
       </Layout>
