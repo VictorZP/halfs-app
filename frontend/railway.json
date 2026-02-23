@@ -6,7 +6,6 @@
     "watchPatterns": ["**"]
   },
   "deploy": {
-    "startCommand": "envsubst '${PORT}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'",
     "numReplicas": 1,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
