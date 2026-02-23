@@ -63,3 +63,33 @@ def analyze_tournament(tournament: str):
 @router.get("/analysis", response_model=List[TournamentStats])
 def analyze_all():
     return svc.get_all_tournaments_stats()
+
+
+@router.get("/analysis/differences/{tournament}")
+def analyze_differences(tournament: str):
+    return svc.analyze_tournament_differences(tournament)
+
+
+@router.get("/analysis/ranges/{tournament}")
+def analyze_ranges(tournament: str):
+    return svc.analyze_tournament_ranges(tournament)
+
+
+@router.get("/analysis/half/{tournament}")
+def analyze_half(tournament: str):
+    return svc.analyze_tournament_half(tournament, change=False)
+
+
+@router.get("/analysis/half-change/{tournament}")
+def analyze_half_change(tournament: str):
+    return svc.analyze_tournament_half(tournament, change=True)
+
+
+@router.get("/analysis/half-all")
+def analyze_half_all():
+    return svc.analyze_all_tournaments_half(change=False)
+
+
+@router.get("/analysis/half-change-all")
+def analyze_half_change_all():
+    return svc.analyze_all_tournaments_half(change=True)

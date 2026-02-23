@@ -74,6 +74,12 @@ export const royka = {
   getStatistics: () => client.get('/royka/statistics'),
   analyzeTournament: (tournament) => client.get(`/royka/analysis/${tournament}`),
   analyzeAll: () => client.get('/royka/analysis'),
+  analyzeDifferences: (tournament) => client.get(`/royka/analysis/differences/${tournament}`),
+  analyzeRanges: (tournament) => client.get(`/royka/analysis/ranges/${tournament}`),
+  analyzeHalf: (tournament) => client.get(`/royka/analysis/half/${tournament}`),
+  analyzeHalfChange: (tournament) => client.get(`/royka/analysis/half-change/${tournament}`),
+  analyzeHalfAll: () => client.get('/royka/analysis/half-all'),
+  analyzeHalfChangeAll: () => client.get('/royka/analysis/half-change-all'),
 };
 
 // ───── Cyber ─────
