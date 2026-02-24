@@ -118,8 +118,8 @@ def clear_live():
 
 @router.post("/live/archive")
 def archive_live(req: CyberLiveArchiveRequest):
-    deleted = svc.archive_live_row(req.model_dump())
-    return {"status": "ok", "deleted_from_live": deleted}
+    result = svc.archive_live_row(req.model_dump())
+    return {"status": "ok", **result}
 
 
 @router.get("/live/archive", response_model=List[CyberLiveArchiveRow])
@@ -152,4 +152,10 @@ def get_live_archive(limit: int = Query(5000)):
 @router.delete("/live/archive")
 def clear_archive():
     deleted = svc.clear_live_archive()
+    return {"status": "ok", "deleted": deleted}
+
+
+@router.delete("/live/archive/selected")
+def delete_archive_selected(req: DeleteRequest):
+    deleted = svc.delete_live_archive_rows(req.ids)
     return {"status": "ok", "deleted": deleted}

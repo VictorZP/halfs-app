@@ -517,9 +517,94 @@ def clear_live_rows() -> None:
         conn.commit()
 
 
-def archive_live_row(payload: dict) -> int:
+def _has_calc_temp(value) -> bool:
+    try:
+        return abs(float(value)) > 1e-9
+    except Exception:
+        return False
+
+
+def archive_live_row(payload: dict) -> dict:
     with get_cyber_connection() as conn:
         cur = conn.cursor()
+        tournament = payload.get("tournament") or ""
+        team1 = payload.get("team1") or ""
+        team2 = payload.get("team2") or ""
+        incoming_has_calc = _has_calc_temp(payload.get("calc_temp"))
+        today_iso = datetime.now().strftime("%Y-%m-%d")
+
+        # Deduplicate same day + same match. Prefer keeping row with CalcTEMP.
+        cur.execute(
+            """
+            SELECT id, calc_temp
+            FROM cyber_live_archive
+            WHERE DATE(archived_at) = DATE(?)
+              AND tournament = ?
+              AND team1 = ?
+              AND team2 = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (today_iso, tournament, team1, team2),
+        )
+        existing = cur.fetchone()
+        if existing:
+            existing_id, existing_calc_temp = existing
+            if _has_calc_temp(existing_calc_temp):
+                return {
+                    "archived": False,
+                    "updated_existing": False,
+                    "deleted_from_live": 0,
+                    "message": "Дубликат за сегодня уже есть (с CalcTEMP) — пропущено",
+                }
+            if incoming_has_calc:
+                cur.execute(
+                    """
+                    UPDATE cyber_live_archive
+                    SET live_row_id = ?, total = ?, calc_temp = ?, temp = ?, predict = ?,
+                        under_value = ?, over_value = ?, t2h = ?, t2h_predict = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        payload.get("live_row_id"),
+                        payload.get("total"),
+                        payload.get("calc_temp"),
+                        payload.get("temp"),
+                        payload.get("predict"),
+                        payload.get("under_value"),
+                        payload.get("over_value"),
+                        payload.get("t2h"),
+                        payload.get("t2h_predict"),
+                        existing_id,
+                    ),
+                )
+                deleted = 0
+                live_row_id = payload.get("live_row_id")
+                if live_row_id:
+                    cur.execute("DELETE FROM cyber_live_matches WHERE id = ?", (live_row_id,))
+                    deleted = cur.rowcount
+                conn.commit()
+                return {
+                    "archived": False,
+                    "updated_existing": True,
+                    "deleted_from_live": deleted,
+                    "message": "Дубликат обновлен значениями с CalcTEMP",
+                }
+            return {
+                "archived": False,
+                "updated_existing": False,
+                "deleted_from_live": 0,
+                "message": "Дубликат за сегодня без CalcTEMP — пропущено",
+            }
+
+        if not incoming_has_calc:
+            return {
+                "archived": False,
+                "updated_existing": False,
+                "deleted_from_live": 0,
+                "message": "Матч без CalcTEMP не архивируется",
+            }
+
         cur.execute(
             """
             INSERT INTO cyber_live_archive (
@@ -529,9 +614,9 @@ def archive_live_row(payload: dict) -> int:
             """,
             (
                 payload.get("live_row_id"),
-                payload.get("tournament") or "",
-                payload.get("team1") or "",
-                payload.get("team2") or "",
+                tournament,
+                team1,
+                team2,
                 payload.get("total"),
                 payload.get("calc_temp"),
                 payload.get("temp"),
@@ -547,10 +632,13 @@ def archive_live_row(payload: dict) -> int:
         if live_row_id:
             cur.execute("DELETE FROM cyber_live_matches WHERE id = ?", (live_row_id,))
             deleted = cur.rowcount
-        else:
-            deleted = 0
         conn.commit()
-        return deleted
+        return {
+            "archived": True,
+            "updated_existing": False,
+            "deleted_from_live": deleted,
+            "message": "Матч отправлен в архив",
+        }
 
 
 def get_live_archive_rows(limit: int = 5000) -> List[dict]:
@@ -574,6 +662,17 @@ def clear_live_archive() -> int:
     with get_cyber_connection() as conn:
         cur = conn.cursor()
         cur.execute("DELETE FROM cyber_live_archive")
+        deleted = cur.rowcount
+        conn.commit()
+        return deleted
+
+
+def delete_live_archive_rows(ids: List[int]) -> int:
+    if not ids:
+        return 0
+    with get_cyber_connection() as conn:
+        cur = conn.cursor()
+        cur.executemany("DELETE FROM cyber_live_archive WHERE id = ?", [(i,) for i in ids])
         deleted = cur.rowcount
         conn.commit()
         return deleted

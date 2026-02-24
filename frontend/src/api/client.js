@@ -115,6 +115,7 @@ export const cyber = {
   saveLive: (rows) => client.put('/cyber/live', rows),
   archiveLive: (row) => client.post('/cyber/live/archive', row),
   getLiveArchive: (limit = 5000) => client.get('/cyber/live/archive', { params: { limit } }),
+  deleteLiveArchiveSelected: (ids) => client.delete('/cyber/live/archive/selected', { data: { ids } }),
   clearLiveArchive: () => client.delete('/cyber/live/archive'),
   clearLive: () => client.delete('/cyber/live'),
 };

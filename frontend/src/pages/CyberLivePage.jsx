@@ -17,6 +17,10 @@ import { cyber } from '../api/client';
 const { TextArea } = Input;
 
 const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? '' : Number(v).toFixed(1));
+const hasCalcTemp = (v) => {
+  const parsed = Number(v);
+  return Number.isFinite(parsed) && Math.abs(parsed) > 0.000001;
+};
 
 function parseLines(rawText) {
   const rows = [];
@@ -46,6 +50,7 @@ export default function CyberLivePage() {
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveRows, setArchiveRows] = useState([]);
   const [archiveQuery, setArchiveQuery] = useState('');
+  const [selectedArchiveRowKeys, setSelectedArchiveRowKeys] = useState([]);
 
   const loadSaved = async () => {
     setLoading(true);
@@ -164,6 +169,10 @@ export default function CyberLivePage() {
   };
 
   const archiveRow = async (row) => {
+    if (!hasCalcTemp(row.calc_temp)) {
+      message.warning('Нельзя архивировать матч без CalcTEMP');
+      return;
+    }
     try {
       const payload = {
         live_row_id: row.id ?? null,
@@ -179,17 +188,17 @@ export default function CyberLivePage() {
         t2h: row.t2h ?? 0,
         t2h_predict: row.t2hPredict === '' ? null : Number(row.t2hPredict),
       };
-      await cyber.archiveLive(payload);
-      setRows((prev) => prev.filter((r) => r.key !== row.key));
-      setArchiveRows((prev) => [
-        {
-          ...payload,
-          id: `tmp-${Date.now()}`,
-          archived_at: new Date().toISOString(),
-        },
-        ...prev,
-      ]);
-      message.success('Матч отправлен в архив');
+      const res = await cyber.archiveLive(payload);
+      const result = res.data || {};
+      if (result.deleted_from_live > 0) {
+        setRows((prev) => prev.filter((r) => r.key !== row.key));
+      }
+      if (result.archived || result.updated_existing) {
+        await loadArchive();
+        message.success(result.message || 'Матч отправлен в архив');
+      } else {
+        message.warning(result.message || 'Матч не добавлен в архив');
+      }
     } catch {
       message.error('Ошибка архивирования');
     }
@@ -204,6 +213,22 @@ export default function CyberLivePage() {
     } catch {
       message.error('Ошибка очистки архива');
     } finally {
+      setArchiveLoading(false);
+    }
+  };
+
+  const deleteSelectedArchive = async () => {
+    if (!selectedArchiveRowKeys.length) return;
+    setArchiveLoading(true);
+    try {
+      const ids = selectedArchiveRowKeys.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+      const res = await cyber.deleteLiveArchiveSelected(ids);
+      const deleted = res.data?.deleted ?? ids.length;
+      message.success(`Удалено из архива: ${deleted}`);
+      setSelectedArchiveRowKeys([]);
+      await loadArchive();
+    } catch {
+      message.error('Ошибка удаления выбранных матчей из архива');
       setArchiveLoading(false);
     }
   };
@@ -274,14 +299,21 @@ export default function CyberLivePage() {
     {
       title: 'CalcTEMP',
       dataIndex: 'calc_temp',
-      width: 100,
+      width: 140,
       render: (_, row) => (
-        <InputNumber
-          value={row.calc_temp}
-          onChange={(v) => updateRow(row.key, { calc_temp: v ?? 0 })}
-          style={{ width: '100%' }}
-          step={0.5}
-        />
+        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+          <InputNumber
+            value={row.calc_temp}
+            onChange={(v) => updateRow(row.key, { calc_temp: v ?? 0 })}
+            style={{ width: '100%' }}
+            step={0.5}
+          />
+          {!hasCalcTemp(row.calc_temp) && (
+            <span style={{ color: '#8c8c8c', fontSize: 11 }}>
+              CalcTEMP пустой
+            </span>
+          )}
+        </Space>
       ),
     },
     { title: 'T2H', dataIndex: 't2h', width: 80, render: (v) => num(v) },
@@ -291,7 +323,13 @@ export default function CyberLivePage() {
       key: 'actions',
       width: 90,
       render: (_, row) => (
-        <Button danger size="small" onClick={() => archiveRow(row)}>
+        <Button
+          danger
+          size="small"
+          onClick={() => archiveRow(row)}
+          disabled={!hasCalcTemp(row.calc_temp)}
+          title={!hasCalcTemp(row.calc_temp) ? 'Заполните CalcTEMP для архивации' : ''}
+        >
           В архив
         </Button>
       ),
@@ -406,6 +444,15 @@ export default function CyberLivePage() {
                   <Button icon={<ReloadOutlined />} onClick={loadArchive} loading={archiveLoading}>
                     Обновить архив
                   </Button>
+                  <Popconfirm
+                    title={`Удалить выбранные матчи (${selectedArchiveRowKeys.length}) из архива?`}
+                    onConfirm={deleteSelectedArchive}
+                    disabled={!selectedArchiveRowKeys.length}
+                  >
+                    <Button danger disabled={!selectedArchiveRowKeys.length} loading={archiveLoading}>
+                      Удалить выбранные
+                    </Button>
+                  </Popconfirm>
                   <Popconfirm title="Очистить весь архив Cyber LIVE?" onConfirm={clearArchive}>
                     <Button danger icon={<ClearOutlined />} loading={archiveLoading}>
                       Очистить архив
@@ -418,6 +465,10 @@ export default function CyberLivePage() {
                 columns={archiveColumns}
                 rowKey="id"
                 loading={archiveLoading}
+                rowSelection={{
+                  selectedRowKeys: selectedArchiveRowKeys,
+                  onChange: (keys) => setSelectedArchiveRowKeys(keys),
+                }}
                 size="small"
                 scroll={{ x: 1650 }}
                 pagination={{ pageSize: 50 }}
