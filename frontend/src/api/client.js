@@ -46,6 +46,10 @@ export const halfs = {
     client.post('/halfs/matches/preview', { raw_text: rawText }),
   importMatches: (rawText) =>
     client.post('/halfs/matches/import', { raw_text: rawText }),
+  updateMatch: (id, field, value) =>
+    client.patch(`/halfs/matches/${id}`, { field, value }),
+  normalizeDates: () =>
+    client.post('/halfs/matches/normalize-dates'),
   deleteMatches: (ids) => client.delete('/halfs/matches', { data: { ids } }),
   clearAll: () => client.delete('/halfs/matches/all'),
   getTournaments: () => client.get('/halfs/tournaments'),

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Table, Button, Input, Space, message, Popconfirm, Select, Statistic, Row, Col, Card, Modal, Alert,
 } from 'antd';
-import { ImportOutlined, DeleteOutlined, ClearOutlined, SearchOutlined, EyeOutlined } from '@ant-design/icons';
+import { ImportOutlined, DeleteOutlined, ClearOutlined, SearchOutlined, EyeOutlined, EditOutlined, CalendarOutlined } from '@ant-design/icons';
 import { halfs } from '../api/client';
 
 const { TextArea } = Input;
@@ -24,6 +24,9 @@ export default function HalfsBasePage() {
     parsed_rows: [],
     errors: [],
   });
+  const [dateEditOpen, setDateEditOpen] = useState(false);
+  const [dateEditRecord, setDateEditRecord] = useState(null);
+  const [dateEditValue, setDateEditValue] = useState('');
 
   const loadData = async () => {
     setLoading(true);
@@ -115,8 +118,55 @@ export default function HalfsBasePage() {
     }
   };
 
+  const openDateEditor = (record) => {
+    setDateEditRecord(record);
+    setDateEditValue(record?.date || '');
+    setDateEditOpen(true);
+  };
+
+  const saveDateEdit = async () => {
+    if (!dateEditRecord?.id) return;
+    try {
+      await halfs.updateMatch(dateEditRecord.id, 'date', dateEditValue);
+      message.success('Дата обновлена');
+      setDateEditOpen(false);
+      loadData();
+    } catch (e) {
+      message.error('Неверный формат даты');
+    }
+  };
+
+  const normalizeDates = async () => {
+    setLoading(true);
+    try {
+      const res = await halfs.normalizeDates();
+      message.success(`Нормализовано дат: ${res.data?.updated || 0}`);
+      loadData();
+    } catch (e) {
+      message.error('Ошибка нормализации дат');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const columns = [
-    { title: 'Дата', dataIndex: 'date', key: 'date', width: 100 },
+    {
+      title: 'Дата',
+      dataIndex: 'date',
+      key: 'date',
+      width: 130,
+      render: (_, record) => (
+        <Space size={6}>
+          <span>{record.date}</span>
+          <Button
+            type="text"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => openDateEditor(record)}
+          />
+        </Space>
+      ),
+    },
     { title: 'Турнир', dataIndex: 'tournament', key: 'tournament', width: 140 },
     { title: 'Дома', dataIndex: 'team_home', key: 'team_home', width: 130 },
     { title: 'Гости', dataIndex: 'team_away', key: 'team_away', width: 130 },
@@ -195,6 +245,9 @@ export default function HalfsBasePage() {
         }}>
           <Button danger icon={<ClearOutlined />}>Очистить</Button>
         </Popconfirm>
+        <Button icon={<CalendarOutlined />} onClick={normalizeDates} loading={loading}>
+          Нормализовать даты
+        </Button>
         <Select
           allowClear
           placeholder="Турнир"
@@ -265,6 +318,20 @@ export default function HalfsBasePage() {
             />
           )}
         </Space>
+      </Modal>
+
+      <Modal
+        title="Редактирование даты"
+        open={dateEditOpen}
+        onCancel={() => setDateEditOpen(false)}
+        onOk={saveDateEdit}
+        okText="Сохранить"
+      >
+        <Input
+          value={dateEditValue}
+          onChange={(e) => setDateEditValue(e.target.value)}
+          placeholder="Например: 21.02.2026, 02.21.26, 2026-02-21"
+        />
       </Modal>
     </Space>
   );

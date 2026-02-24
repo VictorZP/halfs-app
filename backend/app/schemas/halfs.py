@@ -57,6 +57,11 @@ class ImportPreviewResponse(BaseModel):
     errors: List[str]
 
 
+class UpdateMatchFieldRequest(BaseModel):
+    field: str
+    value: str
+
+
 class TeamStats(BaseModel):
     team: str
     games: int
@@ -93,3 +98,7 @@ class StatisticsResponse(BaseModel):
     total_matches: int
     tournaments: int
     teams: int
+
+
+class NormalizeDatesResponse(BaseModel):
+    updated: int

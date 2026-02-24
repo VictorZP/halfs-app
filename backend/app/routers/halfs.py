@@ -10,9 +10,11 @@ from backend.app.schemas.halfs import (
     ImportPreviewResponse,
     ImportRequest,
     ImportResponse,
+    NormalizeDatesResponse,
     StatisticsResponse,
     TeamStats,
     TournamentSummary,
+    UpdateMatchFieldRequest,
 )
 from backend.app.services import halfs_service as svc
 
@@ -41,10 +43,24 @@ def delete_matches(req: DeleteRequest):
     return {"deleted": deleted}
 
 
+@router.patch("/matches/{match_id}")
+def update_match(match_id: int, req: UpdateMatchFieldRequest):
+    ok = svc.update_match_field(match_id, req.field, req.value)
+    if not ok:
+        raise HTTPException(400, "Не удалось обновить поле")
+    return {"status": "ok"}
+
+
 @router.delete("/matches/all")
 def clear_all():
     svc.clear_all()
     return {"status": "ok"}
+
+
+@router.post("/matches/normalize-dates", response_model=NormalizeDatesResponse)
+def normalize_dates():
+    updated = svc.normalize_existing_dates()
+    return NormalizeDatesResponse(updated=updated)
 
 
 @router.get("/tournaments", response_model=List[str])

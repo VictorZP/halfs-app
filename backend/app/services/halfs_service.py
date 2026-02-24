@@ -50,6 +50,81 @@ def _normalize_match_tuple(row: Tuple) -> Tuple:
     )
 
 
+def _to_year_4digits(year_token: str) -> Optional[int]:
+    if not year_token.isdigit():
+        return None
+    if len(year_token) == 4:
+        return int(year_token)
+    if len(year_token) == 2:
+        year = int(year_token)
+        return 2000 + year if year <= 69 else 1900 + year
+    return None
+
+
+def _parse_loose_date_to_iso(value: str) -> Optional[str]:
+    """Parse many date formats and return YYYY-MM-DD."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+
+    # Native ISO support first.
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d.%m.%y"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+    cleaned = (
+        s.replace("/", ".")
+        .replace("-", ".")
+        .replace("\\", ".")
+        .replace(" ", "")
+    )
+    parts = [p for p in cleaned.split(".") if p]
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return None
+
+    a, b, c = parts
+    if len(a) == 4:
+        year = int(a)
+        month = int(b)
+        day = int(c)
+    else:
+        year = _to_year_4digits(c)
+        if year is None:
+            return None
+        x, y = int(a), int(b)
+        # Prefer dd.mm, but auto-swap when impossible.
+        if x > 12 and y <= 12:
+            day, month = x, y
+        elif y > 12 and x <= 12:
+            day, month = y, x
+        else:
+            # Ambiguous (both <=12): for old records like 02.21.26 month/day is typical.
+            if year >= 2000 and y > 12:
+                day, month = y, x
+            else:
+                day, month = x, y
+
+    try:
+        return datetime(year, month, day).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
+def _to_display_date(value: str) -> str:
+    """Convert stored date to dd.mm.yyyy if parseable."""
+    iso = _parse_loose_date_to_iso(value)
+    if not iso:
+        return str(value or "")
+    try:
+        return datetime.strptime(iso, "%Y-%m-%d").strftime("%d.%m.%Y")
+    except Exception:
+        return str(value or "")
+
+
 # ---------------------------------------------------------------------------
 # Data import — fully aligned with desktop parsing behavior
 # ---------------------------------------------------------------------------
@@ -64,8 +139,10 @@ def _parse_match_line(line: str) -> Optional[Tuple]:
 
     start_idx = 0
     try:
-        parsed_date = datetime.strptime(tokens[0], "%d.%m.%Y")
-        date_iso = parsed_date.strftime("%Y-%m-%d")
+        parsed_date = _parse_loose_date_to_iso(tokens[0])
+        if parsed_date is None:
+            raise ValueError("not a date")
+        date_iso = parsed_date
         start_idx = 1
     except Exception:
         date_iso = ""
@@ -294,7 +371,7 @@ def preview_import(raw_text: str) -> dict:
     for row in parsed:
         rows.append(
             {
-                "date": row[0] or "",
+                "date": _to_display_date(row[0] or ""),
                 "tournament": row[1] or "",
                 "team_home": row[2] or "",
                 "team_away": row[3] or "",
@@ -360,6 +437,7 @@ def get_all_matches(tournament: Optional[str] = None, limit: int = 10000) -> Lis
         cur.execute(query, params)
         rows = _rows_to_dicts(cur)
         for row in rows:
+            row["date"] = _to_display_date(row.get("date"))
             row["tournament"] = _denormalize_marker(row.get("tournament"))
             row["team_home"] = _denormalize_marker(row.get("team_home"))
             row["team_away"] = _denormalize_marker(row.get("team_away"))
@@ -391,6 +469,59 @@ def clear_all() -> None:
         cur = conn.cursor()
         cur.execute("DELETE FROM matches")
         conn.commit()
+
+
+def update_match_field(match_id: int, field: str, value: str) -> bool:
+    allowed_fields = {
+        "date", "tournament", "team_home", "team_away",
+        "q1_home", "q1_away", "q2_home", "q2_away",
+        "q3_home", "q3_away", "q4_home", "q4_away",
+        "ot_home", "ot_away",
+    }
+    if field not in allowed_fields:
+        return False
+
+    prepared_value = value
+    if field == "date":
+        iso = _parse_loose_date_to_iso(value)
+        if iso is None:
+            return False
+        prepared_value = iso
+    elif field in {"tournament", "team_home", "team_away"}:
+        prepared_value = _denormalize_marker(value)
+    else:
+        text = str(value).strip()
+        if text == "":
+            prepared_value = None
+        else:
+            try:
+                prepared_value = int(float(text))
+            except Exception:
+                return False
+
+    with get_halfs_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(f"UPDATE matches SET {field} = ? WHERE id = ?", (prepared_value, match_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def normalize_existing_dates() -> int:
+    updated = 0
+    with get_halfs_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, date FROM matches")
+        rows = cur.fetchall()
+        updates = []
+        for match_id, raw_date in rows:
+            iso = _parse_loose_date_to_iso(raw_date)
+            if iso and iso != raw_date:
+                updates.append((iso, match_id))
+        if updates:
+            cur.executemany("UPDATE matches SET date = ? WHERE id = ?", updates)
+            conn.commit()
+            updated = len(updates)
+    return updated
 
 
 def get_statistics() -> dict:
