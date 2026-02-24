@@ -59,11 +59,32 @@ def _normalize_date(value: str) -> str:
         return ""
     if " " in s:
         s = s.split(" ")[0]
-    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M:%S"):
+    for fmt in ("%d.%m.%Y", "%d.%m.%y", "%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M:%S"):
         try:
             return datetime.strptime(s, fmt).strftime("%d.%m.%Y")
         except Exception:
             continue
+    cleaned = s.replace("/", ".").replace("-", ".").replace("\\", ".").replace(" ", "")
+    parts = [p for p in cleaned.split(".") if p]
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        a, b, c = parts
+        try:
+            if len(a) == 4:
+                y, m, d = int(a), int(b), int(c)
+            else:
+                y = int(c)
+                if len(c) == 2:
+                    y = 2000 + y if y <= 69 else 1900 + y
+                x, z = int(a), int(b)
+                if x > 12 and z <= 12:
+                    d, m = x, z
+                elif z > 12 and x <= 12:
+                    d, m = z, x
+                else:
+                    m, d = x, z
+            return datetime(y, m, d).strftime("%d.%m.%Y")
+        except Exception:
+            return s
     return s
 
 
@@ -89,7 +110,10 @@ def get_matches(tournament: Optional[str] = None, limit: int = 10000) -> List[di
     with get_cyber_connection() as conn:
         cur = conn.cursor()
         cur.execute(query, params)
-        return _rows_to_dicts(cur)
+        rows = _rows_to_dicts(cur)
+        for row in rows:
+            row["date"] = _normalize_date(row.get("date"))
+        return rows
 
 
 def get_tournaments() -> List[str]:
@@ -210,13 +234,39 @@ def delete_matches(ids: List[int]) -> int:
         return cur.rowcount
 
 
-def update_match_field(row_id: int, field: str, value) -> None:
+def update_match_field(row_id: int, field: str, value) -> bool:
     if field not in CYBER_COLUMNS:
-        return
+        return False
+    prepared = value
+    if field == "date":
+        prepared = _normalize_date(value)
+    elif field in {"two_pt_made", "two_pt_attempt", "three_pt_made", "three_pt_attempt", "fta_made", "fta_attempt", "off_rebound", "turnovers", "controls", "points", "attak_kef"}:
+        prepared = _to_float(value)
+    elif field in {"tournament", "team", "home_away", "opponent", "status"}:
+        prepared = str(value or "").strip()
     with get_cyber_connection() as conn:
         cur = conn.cursor()
-        cur.execute(f"UPDATE cyber_matches SET {field} = ? WHERE id = ?", (value, row_id))
+        cur.execute(f"UPDATE cyber_matches SET {field} = ? WHERE id = ?", (prepared, row_id))
         conn.commit()
+        return cur.rowcount > 0
+
+
+def normalize_existing_dates() -> int:
+    updated = 0
+    with get_cyber_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id, date FROM cyber_matches")
+        rows = cur.fetchall()
+        updates = []
+        for row_id, value in rows:
+            norm = _normalize_date(value)
+            if norm and norm != (value or ""):
+                updates.append((norm, row_id))
+        if updates:
+            cur.executemany("UPDATE cyber_matches SET date = ? WHERE id = ?", updates)
+            conn.commit()
+            updated = len(updates)
+    return updated
 
 
 def get_summary(tournament: Optional[str] = None) -> List[dict]:

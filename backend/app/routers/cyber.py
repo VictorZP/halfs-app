@@ -11,7 +11,9 @@ from backend.app.schemas.cyber import (
     CyberMatch,
     CyberPredictResponse,
     CyberSummaryRow,
+    CyberUpdateFieldRequest,
     DeleteRequest,
+    NormalizeDatesResponse,
 )
 from backend.app.services import cyber_service as svc
 
@@ -33,6 +35,20 @@ def import_matches(req: CyberImportRequest):
 def delete_matches(req: DeleteRequest):
     deleted = svc.delete_matches(req.ids)
     return {"deleted": deleted}
+
+
+@router.patch("/matches/{row_id}")
+def update_match(row_id: int, req: CyberUpdateFieldRequest):
+    ok = svc.update_match_field(row_id=row_id, field=req.field, value=req.value)
+    if not ok:
+        return {"status": "error"}
+    return {"status": "ok"}
+
+
+@router.post("/matches/normalize-dates", response_model=NormalizeDatesResponse)
+def normalize_dates():
+    updated = svc.normalize_existing_dates()
+    return NormalizeDatesResponse(updated=updated)
 
 
 @router.delete("/matches/all")

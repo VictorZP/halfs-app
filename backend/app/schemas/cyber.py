@@ -40,6 +40,15 @@ class DeleteRequest(BaseModel):
     ids: List[int]
 
 
+class CyberUpdateFieldRequest(BaseModel):
+    field: str
+    value: str
+
+
+class NormalizeDatesResponse(BaseModel):
+    updated: int
+
+
 class CyberLiveRow(BaseModel):
     tournament: str = ""
     team1: str = ""

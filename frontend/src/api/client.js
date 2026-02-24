@@ -100,6 +100,10 @@ export const cyber = {
   getMatches: (tournament, limit = 10000) =>
     client.get('/cyber/matches', { params: { tournament, limit } }),
   importMatches: (rawText) => client.post('/cyber/matches/import', { raw_text: rawText }),
+  updateMatch: (id, field, value) =>
+    client.patch(`/cyber/matches/${id}`, { field, value }),
+  normalizeDates: () =>
+    client.post('/cyber/matches/normalize-dates'),
   deleteMatches: (ids) => client.delete('/cyber/matches', { data: { ids } }),
   clearAll: () => client.delete('/cyber/matches/all'),
   getTournaments: () => client.get('/cyber/tournaments'),

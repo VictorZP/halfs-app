@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   Card,
   Col,
   Input,
   message,
+  Modal,
   Popconfirm,
   Row,
   Select,
@@ -13,30 +15,10 @@ import {
   Table,
   Tabs,
 } from 'antd';
-import { ClearOutlined, DeleteOutlined, ImportOutlined, ReloadOutlined } from '@ant-design/icons';
+import { CalendarOutlined, ClearOutlined, DeleteOutlined, EditOutlined, ImportOutlined, ReloadOutlined } from '@ant-design/icons';
 import { cyber } from '../api/client';
 
 const { TextArea } = Input;
-
-const matchColumns = [
-  { title: 'Дата', dataIndex: 'date', width: 90 },
-  { title: 'Турнир', dataIndex: 'tournament', width: 150 },
-  { title: 'Команда', dataIndex: 'team', width: 130 },
-  { title: 'H/A', dataIndex: 'home_away', width: 60 },
-  { title: '2PTM', dataIndex: 'two_pt_made', width: 70 },
-  { title: '2PTA', dataIndex: 'two_pt_attempt', width: 70 },
-  { title: '3PTM', dataIndex: 'three_pt_made', width: 70 },
-  { title: '3PTA', dataIndex: 'three_pt_attempt', width: 70 },
-  { title: 'FTM', dataIndex: 'fta_made', width: 70 },
-  { title: 'FTA', dataIndex: 'fta_attempt', width: 70 },
-  { title: 'OR', dataIndex: 'off_rebound', width: 70 },
-  { title: 'TO', dataIndex: 'turnovers', width: 70 },
-  { title: 'Controls', dataIndex: 'controls', width: 80 },
-  { title: 'Points', dataIndex: 'points', width: 80 },
-  { title: 'Opponent', dataIndex: 'opponent', width: 130 },
-  { title: 'AttakKEF', dataIndex: 'attak_kef', width: 80 },
-  { title: 'Status', dataIndex: 'status', width: 80 },
-];
 
 const summaryColumns = [
   { title: 'Турнир', dataIndex: 'tournament', width: 180 },
@@ -67,6 +49,9 @@ export default function CybersBasePage() {
   const [summaryTournament, setSummaryTournament] = useState(null);
   const [importText, setImportText] = useState('');
   const [selectedRows, setSelectedRows] = useState([]);
+  const [dateEditOpen, setDateEditOpen] = useState(false);
+  const [dateEditRecord, setDateEditRecord] = useState(null);
+  const [dateEditValue, setDateEditValue] = useState('');
 
   const loadAll = async () => {
     setLoading(true);
@@ -95,6 +80,44 @@ export default function CybersBasePage() {
   const tournamentOptions = useMemo(
     () => tournaments.map((t) => ({ label: t, value: t })),
     [tournaments]
+  );
+
+  const matchColumns = useMemo(
+    () => [
+      {
+        title: 'Дата',
+        dataIndex: 'date',
+        width: 110,
+        render: (_, record) => (
+          <Space size={6}>
+            <span>{record.date}</span>
+            <Button type="text" size="small" icon={<EditOutlined />} onClick={() => {
+              setDateEditRecord(record);
+              setDateEditValue(record?.date || '');
+              setDateEditOpen(true);
+            }}
+            />
+          </Space>
+        ),
+      },
+      { title: 'Турнир', dataIndex: 'tournament', width: 150 },
+      { title: 'Команда', dataIndex: 'team', width: 130 },
+      { title: 'H/A', dataIndex: 'home_away', width: 60 },
+      { title: '2PTM', dataIndex: 'two_pt_made', width: 70 },
+      { title: '2PTA', dataIndex: 'two_pt_attempt', width: 70 },
+      { title: '3PTM', dataIndex: 'three_pt_made', width: 70 },
+      { title: '3PTA', dataIndex: 'three_pt_attempt', width: 70 },
+      { title: 'FTM', dataIndex: 'fta_made', width: 70 },
+      { title: 'FTA', dataIndex: 'fta_attempt', width: 70 },
+      { title: 'OR', dataIndex: 'off_rebound', width: 70 },
+      { title: 'TO', dataIndex: 'turnovers', width: 70 },
+      { title: 'Controls', dataIndex: 'controls', width: 80 },
+      { title: 'Points', dataIndex: 'points', width: 80 },
+      { title: 'Opponent', dataIndex: 'opponent', width: 130 },
+      { title: 'AttakKEF', dataIndex: 'attak_kef', width: 80 },
+      { title: 'Status', dataIndex: 'status', width: 80 },
+    ],
+    []
   );
 
   const handleImport = async () => {
@@ -134,6 +157,31 @@ export default function CybersBasePage() {
       loadAll();
     } catch {
       message.error('Ошибка очистки');
+    }
+  };
+
+  const saveDateEdit = async () => {
+    if (!dateEditRecord?.id) return;
+    try {
+      await cyber.updateMatch(dateEditRecord.id, 'date', dateEditValue);
+      message.success('Дата обновлена');
+      setDateEditOpen(false);
+      loadAll();
+    } catch {
+      message.error('Не удалось сохранить дату');
+    }
+  };
+
+  const normalizeDates = async () => {
+    setLoading(true);
+    try {
+      const res = await cyber.normalizeDates();
+      message.success(`Нормализовано дат: ${res.data?.updated || 0}`);
+      loadAll();
+    } catch {
+      message.error('Ошибка нормализации дат');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -190,6 +238,9 @@ export default function CybersBasePage() {
         <Popconfirm title="Очистить всю базу Cyber?" onConfirm={clearAll}>
           <Button danger icon={<ClearOutlined />}>Очистить базу</Button>
         </Popconfirm>
+        <Button icon={<CalendarOutlined />} onClick={normalizeDates} loading={loading}>
+          Нормализовать даты
+        </Button>
       </Space>
 
       <Table
@@ -201,6 +252,11 @@ export default function CybersBasePage() {
         scroll={{ x: 1800 }}
         pagination={{ pageSize: 50, showSizeChanger: true }}
         rowSelection={{ selectedRowKeys: selectedRows, onChange: setSelectedRows }}
+      />
+      <Alert
+        type="info"
+        showIcon
+        message="Дату можно отредактировать по иконке карандаша в колонке 'Дата'."
       />
     </Space>
   );
@@ -235,11 +291,26 @@ export default function CybersBasePage() {
   );
 
   return (
-    <Tabs
-      items={[
-        { key: 'base', label: 'База', children: baseTab },
-        { key: 'summary', label: 'Сводная статистика', children: summaryTab },
-      ]}
-    />
+    <>
+      <Tabs
+        items={[
+          { key: 'base', label: 'База', children: baseTab },
+          { key: 'summary', label: 'Сводная статистика', children: summaryTab },
+        ]}
+      />
+      <Modal
+        title="Редактирование даты (Cybers)"
+        open={dateEditOpen}
+        onCancel={() => setDateEditOpen(false)}
+        onOk={saveDateEdit}
+        okText="Сохранить"
+      >
+        <Input
+          value={dateEditValue}
+          onChange={(e) => setDateEditValue(e.target.value)}
+          placeholder="Например: 21.02.2026, 02.21.26, 2026-02-21"
+        />
+      </Modal>
+    </>
   );
 }
