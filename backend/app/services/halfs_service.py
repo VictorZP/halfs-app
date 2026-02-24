@@ -4,13 +4,14 @@ This wraps the existing HalfsDatabase class, adapting it for the web
 backend.  Works with both SQLite and PostgreSQL via db_connect.
 """
 
+from datetime import datetime
+import re
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
 from backend.app.database.connection import get_halfs_connection
 from db_connection import is_postgres, adapt_sql
-from halfs_database import HalfsDatabase
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +54,204 @@ def _normalize_match_tuple(row: Tuple) -> Tuple:
 # Data import — fully aligned with desktop parsing behavior
 # ---------------------------------------------------------------------------
 
+def _parse_match_line(line: str) -> Optional[Tuple]:
+    """Desktop-compatible parser without external module dependency."""
+    if not line or not line.strip():
+        return None
+    tokens = [tok.strip() for tok in line.strip().split() if tok.strip()]
+    if len(tokens) < 7:
+        return None
+
+    start_idx = 0
+    try:
+        parsed_date = datetime.strptime(tokens[0], "%d.%m.%Y")
+        date_iso = parsed_date.strftime("%Y-%m-%d")
+        start_idx = 1
+    except Exception:
+        date_iso = ""
+        start_idx = 0
+
+    scores = []
+    score_start = None
+    scores_type = "quarters"
+    total_tokens = len(tokens)
+
+    if total_tokens - start_idx >= 10 and all(
+        tok.lstrip("+-").isdigit() for tok in tokens[total_tokens - 10:]
+    ):
+        try:
+            scores = [int(tok) for tok in tokens[total_tokens - 10:]]
+            score_start = total_tokens - 10
+            scores_type = "quarters"
+        except Exception:
+            scores = []
+            score_start = None
+
+    if not scores:
+        if total_tokens - start_idx >= 8 and all(
+            tok.lstrip("+-").isdigit() for tok in tokens[total_tokens - 8:]
+        ):
+            try:
+                scores = [int(tok) for tok in tokens[total_tokens - 8:]]
+                score_start = total_tokens - 8
+                scores_type = "quarters"
+            except Exception:
+                return None
+        else:
+            if total_tokens - start_idx >= 6 and all(
+                tok.lstrip("+-").isdigit() for tok in tokens[total_tokens - 6:]
+            ):
+                try:
+                    scores = [int(tok) for tok in tokens[total_tokens - 6:]]
+                    score_start = total_tokens - 6
+                    scores_type = "halves"
+                except Exception:
+                    return None
+            elif total_tokens - start_idx >= 4 and all(
+                tok.lstrip("+-").isdigit() for tok in tokens[total_tokens - 4:]
+            ):
+                try:
+                    scores = [int(tok) for tok in tokens[total_tokens - 4:]]
+                    score_start = total_tokens - 4
+                    scores_type = "halves"
+                except Exception:
+                    return None
+            else:
+                return None
+
+    meta_tokens = tokens[start_idx:score_start]
+    if len(meta_tokens) < 3:
+        return None
+
+    grouped: List[str] = []
+    i = 0
+    while i < len(meta_tokens):
+        tok = meta_tokens[i]
+        if tok == "(W)":
+            if grouped:
+                grouped[-1] = f"{grouped[-1]} {tok}"
+            else:
+                grouped.append(tok)
+            i += 1
+            continue
+        grouped.append(tok)
+        i += 1
+    meta_tokens = grouped
+    if len(meta_tokens) < 3:
+        return None
+
+    team_away_tokens: List[str] = []
+    team_home_tokens: List[str] = []
+
+    def is_numeric_string(tok: str) -> bool:
+        return tok.lstrip("+-").isdigit()
+
+    numeric_case = False
+    i = len(meta_tokens) - 1
+    if i < 0:
+        return None
+    if is_numeric_string(meta_tokens[i]):
+        if i - 1 < 0:
+            return None
+        team_away_tokens = [meta_tokens[i - 1], meta_tokens[i]]
+        numeric_case = True
+        i -= 2
+    else:
+        team_away_tokens = [meta_tokens[i]]
+        i -= 1
+
+    if i < 0:
+        return None
+    if is_numeric_string(meta_tokens[i]):
+        if i - 1 < 0:
+            return None
+        team_home_tokens = [meta_tokens[i - 1], meta_tokens[i]]
+        numeric_case = True
+        i -= 2
+    else:
+        team_home_tokens = [meta_tokens[i]]
+        i -= 1
+
+    if i >= 0 and is_numeric_string(meta_tokens[i]):
+        team_home_tokens.insert(0, meta_tokens[i])
+        numeric_case = True
+        i -= 1
+
+    meta_tokens = meta_tokens[: i + 1]
+
+    def looks_like_suffix(token: str) -> bool:
+        return bool(
+            re.fullmatch(r"[A-Za-z]{1,2}", token)
+            or re.fullmatch(r"[A-Za-z]+-\d+", token)
+        )
+
+    if (
+        looks_like_suffix(team_away_tokens[0])
+        and not re.search(r"[-\d()]", team_home_tokens[0])
+        and len(meta_tokens) >= 2
+    ):
+        team_away_tokens.insert(0, team_home_tokens.pop())
+        if meta_tokens:
+            team_home_tokens = [meta_tokens.pop()]
+        else:
+            return None
+
+    if (
+        not numeric_case
+        and len(meta_tokens) >= 2
+        and not re.search(r"[-\d()]", team_home_tokens[0])
+        and not re.search(r"[-\d()]", meta_tokens[-1])
+        and len(meta_tokens[-1]) > 1
+        and "+" not in meta_tokens[-1]
+        and meta_tokens[-1].upper() not in {
+            "EAST", "WEST", "NORTH", "SOUTH", "CENTRAL", "CENTER",
+            "NORTHWEST", "NORTHEAST", "SOUTHWEST", "SOUTHEAST",
+        }
+    ):
+        team_home_tokens.insert(0, meta_tokens.pop())
+
+    tournament = " ".join(meta_tokens).strip()
+    team_home = " ".join(team_home_tokens).strip()
+    team_away = " ".join(team_away_tokens).strip()
+
+    if scores_type == "halves":
+        tournament_norm = tournament.replace("~", " ").strip().upper()
+        if tournament_norm != "NCAA D1":
+            return None
+        q1_home, q1_away = scores[0:2]
+        q2_home, q2_away = scores[2:4]
+        q3_home, q3_away = 0, 0
+        q4_home, q4_away = 0, 0
+        ot_home, ot_away = None, None
+        if len(scores) == 6:
+            ot_home, ot_away = scores[4:6]
+    else:
+        q1_home, q1_away = scores[0:2]
+        q2_home, q2_away = scores[2:4]
+        q3_home, q3_away = scores[4:6]
+        q4_home, q4_away = scores[6:8]
+        ot_home, ot_away = None, None
+        if len(scores) == 10:
+            ot_home, ot_away = scores[8:10]
+
+    return (
+        date_iso,
+        tournament,
+        team_home,
+        team_away,
+        q1_home,
+        q1_away,
+        q2_home,
+        q2_away,
+        q3_home,
+        q3_away,
+        q4_home,
+        q4_away,
+        ot_home,
+        ot_away,
+    )
+
+
 def _prepare_import_lines(raw_text: str) -> List[str]:
     """Prepare pasted lines exactly like desktop HalfsDatabasePage.import_matches."""
     lines = [ln for ln in raw_text.strip().splitlines() if ln.strip()]
@@ -81,7 +280,7 @@ def _parse_import_raw_text(raw_text: str) -> Tuple[List[Tuple], List[str]]:
     errors: List[str] = []
     for line in _prepare_import_lines(raw_text):
         processed_line = line.replace("_", " ")
-        result = HalfsDatabase._parse_match_line(processed_line)
+        result = _parse_match_line(processed_line)
         if result:
             parsed.append(_normalize_match_tuple(result))
         else:
