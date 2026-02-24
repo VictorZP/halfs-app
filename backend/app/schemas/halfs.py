@@ -33,6 +33,30 @@ class ImportResponse(BaseModel):
     errors: List[str]
 
 
+class ImportPreviewRow(BaseModel):
+    date: str = ""
+    tournament: str = ""
+    team_home: str = ""
+    team_away: str = ""
+    q1_home: Optional[int] = 0
+    q1_away: Optional[int] = 0
+    q2_home: Optional[int] = 0
+    q2_away: Optional[int] = 0
+    q3_home: Optional[int] = 0
+    q3_away: Optional[int] = 0
+    q4_home: Optional[int] = 0
+    q4_away: Optional[int] = 0
+    ot_home: Optional[int] = 0
+    ot_away: Optional[int] = 0
+
+
+class ImportPreviewResponse(BaseModel):
+    parsed_count: int
+    error_count: int
+    parsed_rows: List[ImportPreviewRow]
+    errors: List[str]
+
+
 class TeamStats(BaseModel):
     team: str
     games: int

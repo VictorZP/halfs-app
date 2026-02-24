@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query, HTTPException
 from backend.app.schemas.halfs import (
     DeleteRequest,
     HalfsMatch,
+    ImportPreviewResponse,
     ImportRequest,
     ImportResponse,
     StatisticsResponse,
@@ -27,6 +28,11 @@ def list_matches(tournament: Optional[str] = Query(None), limit: int = Query(100
 def import_matches(req: ImportRequest):
     count, errors = svc.import_matches(req.raw_text)
     return ImportResponse(imported=count, errors=errors)
+
+
+@router.post("/matches/preview", response_model=ImportPreviewResponse)
+def preview_import(req: ImportRequest):
+    return svc.preview_import(req.raw_text)
 
 
 @router.delete("/matches")

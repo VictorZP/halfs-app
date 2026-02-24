@@ -42,6 +42,8 @@ client.interceptors.response.use(
 export const halfs = {
   getMatches: (tournament, limit = 10000) =>
     client.get('/halfs/matches', { params: { tournament, limit } }),
+  previewImport: (rawText) =>
+    client.post('/halfs/matches/preview', { raw_text: rawText }),
   importMatches: (rawText) =>
     client.post('/halfs/matches/import', { raw_text: rawText }),
   deleteMatches: (ids) => client.delete('/halfs/matches', { data: { ids } }),
@@ -104,6 +106,27 @@ export const cyber = {
   getLive: () => client.get('/cyber/live'),
   saveLive: (rows) => client.put('/cyber/live', rows),
   clearLive: () => client.delete('/cyber/live'),
+};
+
+// ───── Sort Halves ─────
+
+export const sortHalves = {
+  process: (sourceFile, destinationFile) => {
+    const formData = new FormData();
+    formData.append('source_file', sourceFile);
+    formData.append('destination_file', destinationFile);
+    return client.post('/sort-halves/process', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      responseType: 'blob',
+    });
+  },
+  getSheets: (destinationFile) => {
+    const formData = new FormData();
+    formData.append('destination_file', destinationFile);
+    return client.post('/sort-halves/sheets', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 };
 
 export default client;

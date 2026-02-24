@@ -5,13 +5,12 @@ backend.  Works with both SQLite and PostgreSQL via db_connect.
 """
 
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime
-import re
 
 import pandas as pd
 
 from backend.app.database.connection import get_halfs_connection
 from db_connection import is_postgres, adapt_sql
+from halfs_database import HalfsDatabase
 
 
 # ---------------------------------------------------------------------------
@@ -24,87 +23,100 @@ def _rows_to_dicts(cursor) -> List[dict]:
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-# ---------------------------------------------------------------------------
-# Data import — line parsing reuses the logic from halfs_database.py
-# ---------------------------------------------------------------------------
+def _denormalize_marker(value):
+    if isinstance(value, str):
+        return value.replace("~", " ").strip()
+    return value
 
-def _parse_match_line(line: str) -> Optional[Tuple]:
-    """Parses a raw match line.
 
-    Simplified version of the desktop parser that handles:
-    - 8 scores (4 quarters), 10 scores (4 quarters + OT)
-    - 4 or 6 scores (NCAA D1 halves + optional OT)
-    - Multi-word team and tournament names
-    """
-    if not line or not line.strip():
-        return None
-    tokens = [t.strip() for t in line.strip().split() if t.strip()]
-    if len(tokens) < 7:
-        return None
-
-    start_idx = 0
-    try:
-        parsed_date = datetime.strptime(tokens[0], "%d.%m.%Y")
-        date_iso = parsed_date.strftime("%Y-%m-%d")
-        start_idx = 1
-    except Exception:
-        date_iso = ""
-
-    total = len(tokens)
-    scores = []
-    score_start = None
-    scores_type = "quarters"
-
-    for count in (10, 8, 6, 4):
-        if total - start_idx >= count:
-            tail = tokens[total - count:]
-            if all(t.lstrip("+-").isdigit() for t in tail):
-                scores = [int(t) for t in tail]
-                score_start = total - count
-                scores_type = "halves" if count in (4, 6) else "quarters"
-                break
-
-    if not scores:
-        return None
-
-    meta = tokens[start_idx:score_start]
-    if len(meta) < 3:
-        return None
-
-    grouped = []
-    i = 0
-    while i < len(meta):
-        if meta[i] == "(W)" and grouped:
-            grouped[-1] += " (W)"
-        else:
-            grouped.append(meta[i])
-        i += 1
-    meta = grouped
-    if len(meta) < 3:
-        return None
-
-    team_away = meta[-1]
-    team_home = meta[-2]
-    tournament = " ".join(meta[:-2])
-
-    if scores_type == "quarters":
-        if len(scores) == 8:
-            q1h, q1a, q2h, q2a, q3h, q3a, q4h, q4a = scores
-            oth, ota = 0, 0
-        else:
-            q1h, q1a, q2h, q2a, q3h, q3a, q4h, q4a, oth, ota = scores
-    else:
-        if len(scores) == 4:
-            q1h, q1a, q2h, q2a = scores
-            q3h = q3a = q4h = q4a = oth = ota = 0
-        else:
-            q1h, q1a, q2h, q2a, oth, ota = scores
-            q3h = q3a = q4h = q4a = 0
-
+def _normalize_match_tuple(row: Tuple) -> Tuple:
+    """Replace temporary markers in textual fields of parsed row."""
     return (
-        date_iso, tournament, team_home, team_away,
-        q1h, q1a, q2h, q2a, q3h, q3a, q4h, q4a, oth, ota,
+        row[0],
+        _denormalize_marker(row[1]),
+        _denormalize_marker(row[2]),
+        _denormalize_marker(row[3]),
+        row[4],
+        row[5],
+        row[6],
+        row[7],
+        row[8],
+        row[9],
+        row[10],
+        row[11],
+        row[12],
+        row[13],
     )
+
+
+# ---------------------------------------------------------------------------
+# Data import — fully aligned with desktop parsing behavior
+# ---------------------------------------------------------------------------
+
+def _prepare_import_lines(raw_text: str) -> List[str]:
+    """Prepare pasted lines exactly like desktop HalfsDatabasePage.import_matches."""
+    lines = [ln for ln in raw_text.strip().splitlines() if ln.strip()]
+    prepared: List[str] = []
+
+    for line in lines:
+        if "\t" in line:
+            cells = [c.strip() for c in line.split("\t")]
+            new_cells: List[str] = []
+            for cell in cells:
+                if any(ch.isalpha() for ch in cell):
+                    # Preserve multi-word names as a single token for parser.
+                    tmp = cell.replace("_", " ").split()
+                    new_cells.append("~".join(tmp))
+                else:
+                    new_cells.append(cell)
+            prepared.append(" ".join(new_cells))
+        else:
+            prepared.append(" ".join(line.split()))
+
+    return prepared
+
+
+def _parse_import_raw_text(raw_text: str) -> Tuple[List[Tuple], List[str]]:
+    parsed: List[Tuple] = []
+    errors: List[str] = []
+    for line in _prepare_import_lines(raw_text):
+        processed_line = line.replace("_", " ")
+        result = HalfsDatabase._parse_match_line(processed_line)
+        if result:
+            parsed.append(_normalize_match_tuple(result))
+        else:
+            errors.append(line.strip().replace("~", " "))
+    return parsed, errors
+
+
+def preview_import(raw_text: str) -> dict:
+    parsed, errors = _parse_import_raw_text(raw_text)
+    rows = []
+    for row in parsed:
+        rows.append(
+            {
+                "date": row[0] or "",
+                "tournament": row[1] or "",
+                "team_home": row[2] or "",
+                "team_away": row[3] or "",
+                "q1_home": row[4],
+                "q1_away": row[5],
+                "q2_home": row[6],
+                "q2_away": row[7],
+                "q3_home": row[8],
+                "q3_away": row[9],
+                "q4_home": row[10],
+                "q4_away": row[11],
+                "ot_home": row[12],
+                "ot_away": row[13],
+            }
+        )
+    return {
+        "parsed_count": len(parsed),
+        "error_count": len(errors),
+        "parsed_rows": rows,
+        "errors": errors,
+    }
 
 
 def import_matches(raw_text: str) -> Tuple[int, List[str]]:
@@ -112,16 +124,7 @@ def import_matches(raw_text: str) -> Tuple[int, List[str]]:
 
     Returns (imported_count, error_lines).
     """
-    parsed = []
-    errors = []
-    for line in raw_text.strip().splitlines():
-        if not line.strip():
-            continue
-        result = _parse_match_line(line)
-        if result:
-            parsed.append(result)
-        else:
-            errors.append(line.strip())
+    parsed, errors = _parse_import_raw_text(raw_text)
 
     if parsed:
         with get_halfs_connection() as conn:
@@ -148,15 +151,20 @@ def get_all_matches(tournament: Optional[str] = None, limit: int = 10000) -> Lis
     query = "SELECT * FROM matches"
     params: list = []
     if tournament:
-        query += " WHERE tournament = ?"
-        params.append(tournament)
+        query += " WHERE tournament = ? OR REPLACE(tournament, '~', ' ') = ?"
+        params.extend([tournament, tournament])
     query += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
 
     with get_halfs_connection() as conn:
         cur = conn.cursor()
         cur.execute(query, params)
-        return _rows_to_dicts(cur)
+        rows = _rows_to_dicts(cur)
+        for row in rows:
+            row["tournament"] = _denormalize_marker(row.get("tournament"))
+            row["team_home"] = _denormalize_marker(row.get("team_home"))
+            row["team_away"] = _denormalize_marker(row.get("team_away"))
+        return rows
 
 
 def get_tournaments() -> List[str]:
@@ -165,7 +173,8 @@ def get_tournaments() -> List[str]:
         cur.execute(
             "SELECT DISTINCT tournament FROM matches WHERE tournament IS NOT NULL ORDER BY tournament"
         )
-        return [r[0] for r in cur.fetchall()]
+        values = [_denormalize_marker(r[0]) for r in cur.fetchall() if r and r[0]]
+        return sorted(set(values))
 
 
 def delete_matches(ids: List[int]) -> int:
@@ -212,18 +221,26 @@ def _get_halfs_df(tournament: Optional[str] = None) -> pd.DataFrame:
         if is_postgres():
             raw = conn._conn if hasattr(conn, '_conn') else conn
             if tournament:
-                return pd.read_sql_query(
-                    adapt_sql("SELECT * FROM matches WHERE tournament = ?"),
-                    raw, params=(tournament,),
+                df = pd.read_sql_query(
+                    adapt_sql("SELECT * FROM matches WHERE tournament = ? OR REPLACE(tournament, '~', ' ') = ?"),
+                    raw, params=(tournament, tournament),
                 )
-            return pd.read_sql_query("SELECT * FROM matches", raw)
+            else:
+                df = pd.read_sql_query("SELECT * FROM matches", raw)
         else:
             if tournament:
-                return pd.read_sql_query(
-                    "SELECT * FROM matches WHERE tournament = ?",
-                    conn, params=(tournament,),
+                df = pd.read_sql_query(
+                    "SELECT * FROM matches WHERE tournament = ? OR REPLACE(tournament, '~', ' ') = ?",
+                    conn, params=(tournament, tournament),
                 )
-            return pd.read_sql_query("SELECT * FROM matches", conn)
+            else:
+                df = pd.read_sql_query("SELECT * FROM matches", conn)
+
+    if not df.empty:
+        for col in ("tournament", "team_home", "team_away"):
+            if col in df.columns:
+                df[col] = df[col].astype(str).str.replace("~", " ", regex=False).str.strip()
+    return df
 
 
 def get_team_statistics(tournament: str) -> List[dict]:

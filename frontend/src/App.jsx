@@ -9,6 +9,7 @@ import {
   FundOutlined,
   RadarChartOutlined,
   ThunderboltOutlined,
+  SortAscendingOutlined,
   LogoutOutlined,
   MenuOutlined,
 } from '@ant-design/icons';
@@ -21,6 +22,7 @@ import TournamentSummaryPage from './pages/TournamentSummaryPage';
 import HomePage from './pages/HomePage';
 import CybersBasePage from './pages/CybersBasePage';
 import CyberLivePage from './pages/CyberLivePage';
+import SortHalvesPage from './pages/SortHalvesPage';
 
 const { Content, Header, Sider } = Layout;
 const { useBreakpoint } = Grid;
@@ -33,6 +35,7 @@ const menuItems = [
   { key: '/summary',      icon: <TableOutlined />,     label: 'Сводная таблица' },
   { key: '/cybers',       icon: <RadarChartOutlined />, label: 'Cybers Bases' },
   { key: '/cyber-live',   icon: <ThunderboltOutlined />, label: 'Cyber LIVE' },
+  { key: '/sort-halfs',   icon: <SortAscendingOutlined />, label: 'Сортировка половин' },
 ];
 
 function SideMenu({ selectedKey, onSelect, onLogout }) {
@@ -166,6 +169,7 @@ export default function App() {
             <Route path="/summary" element={<TournamentSummaryPage />} />
             <Route path="/cybers" element={<CybersBasePage />} />
             <Route path="/cyber-live" element={<CyberLivePage />} />
+            <Route path="/sort-halfs" element={<SortHalvesPage />} />
           </Routes>
         </Content>
       </Layout>

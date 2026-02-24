@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.auth import require_auth
 from backend.app.config import get_settings
 from backend.app.database.models import init_all_databases
-from backend.app.routers import auth, cyber, halfs, royka
+from backend.app.routers import auth, cyber, halfs, royka, sort_halves
 
 
 @asynccontextmanager
@@ -44,6 +44,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition", "X-Games-Summary"],
 )
 
 # Auth router (public — no token required for login)
@@ -62,6 +63,11 @@ app.include_router(
 )
 app.include_router(
     cyber.router,
+    prefix="/api",
+    dependencies=[Depends(require_auth)],
+)
+app.include_router(
+    sort_halves.router,
     prefix="/api",
     dependencies=[Depends(require_auth)],
 )
