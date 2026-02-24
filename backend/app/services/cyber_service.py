@@ -515,3 +515,65 @@ def clear_live_rows() -> None:
         cur = conn.cursor()
         cur.execute("DELETE FROM cyber_live_matches")
         conn.commit()
+
+
+def archive_live_row(payload: dict) -> int:
+    with get_cyber_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO cyber_live_archive (
+                live_row_id, tournament, team1, team2, total, calc_temp,
+                temp, predict, under_value, over_value, t2h, t2h_predict
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload.get("live_row_id"),
+                payload.get("tournament") or "",
+                payload.get("team1") or "",
+                payload.get("team2") or "",
+                payload.get("total"),
+                payload.get("calc_temp"),
+                payload.get("temp"),
+                payload.get("predict"),
+                payload.get("under_value"),
+                payload.get("over_value"),
+                payload.get("t2h"),
+                payload.get("t2h_predict"),
+            ),
+        )
+        deleted = 0
+        live_row_id = payload.get("live_row_id")
+        if live_row_id:
+            cur.execute("DELETE FROM cyber_live_matches WHERE id = ?", (live_row_id,))
+            deleted = cur.rowcount
+        else:
+            deleted = 0
+        conn.commit()
+        return deleted
+
+
+def get_live_archive_rows(limit: int = 5000) -> List[dict]:
+    with get_cyber_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                id, live_row_id, tournament, team1, team2, total, calc_temp,
+                temp, predict, under_value, over_value, t2h, t2h_predict, archived_at
+            FROM cyber_live_archive
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return _rows_to_dicts(cur)
+
+
+def clear_live_archive() -> int:
+    with get_cyber_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM cyber_live_archive")
+        deleted = cur.rowcount
+        conn.commit()
+        return deleted

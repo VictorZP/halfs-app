@@ -101,6 +101,30 @@ def init_cyber_db() -> None:
                 calc_temp REAL
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cyber_live_archive (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                live_row_id INTEGER,
+                tournament TEXT,
+                team1 TEXT,
+                team2 TEXT,
+                total REAL,
+                calc_temp REAL,
+                temp REAL,
+                predict REAL,
+                under_value REAL,
+                over_value REAL,
+                t2h REAL,
+                t2h_predict REAL,
+                archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cyber_live_archive_tournament ON cyber_live_archive(tournament)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cyber_live_archive_archived_at ON cyber_live_archive(archived_at)"
+        )
         conn.commit()
 
 

@@ -50,6 +50,7 @@ class NormalizeDatesResponse(BaseModel):
 
 
 class CyberLiveRow(BaseModel):
+    id: Optional[int] = None
     tournament: str = ""
     team1: str = ""
     team2: str = ""
@@ -62,6 +63,38 @@ class CyberPredictResponse(BaseModel):
     temp: float
     it1: float
     it2: float
+
+
+class CyberLiveArchiveRequest(BaseModel):
+    live_row_id: Optional[int] = None
+    tournament: str = ""
+    team1: str = ""
+    team2: str = ""
+    total: Optional[float] = None
+    calc_temp: Optional[float] = 0
+    temp: Optional[float] = 0
+    predict: Optional[float] = 0
+    under_value: Optional[float] = None
+    over_value: Optional[float] = None
+    t2h: Optional[float] = 0
+    t2h_predict: Optional[float] = None
+
+
+class CyberLiveArchiveRow(BaseModel):
+    id: int
+    live_row_id: Optional[int] = None
+    tournament: str = ""
+    team1: str = ""
+    team2: str = ""
+    total: Optional[float] = None
+    calc_temp: Optional[float] = 0
+    temp: Optional[float] = 0
+    predict: Optional[float] = 0
+    under_value: Optional[float] = None
+    over_value: Optional[float] = None
+    t2h: Optional[float] = 0
+    t2h_predict: Optional[float] = None
+    archived_at: str = ""
 
 
 class CyberSummaryRow(BaseModel):

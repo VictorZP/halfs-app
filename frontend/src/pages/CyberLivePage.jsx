@@ -43,6 +43,9 @@ export default function CyberLivePage() {
   const [inputText, setInputText] = useState('');
   const [rows, setRows] = useState([]);
   const [predictMap, setPredictMap] = useState({});
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveRows, setArchiveRows] = useState([]);
+  const [archiveQuery, setArchiveQuery] = useState('');
 
   const loadSaved = async () => {
     setLoading(true);
@@ -50,6 +53,7 @@ export default function CyberLivePage() {
       const res = await cyber.getLive();
       const prepared = (res.data || []).map((r, idx) => ({
         key: `${idx}-${r.tournament}-${r.team1}-${r.team2}`,
+        id: r.id ?? null,
         tournament: r.tournament || '',
         team1: r.team1 || '',
         team2: r.team2 || '',
@@ -66,6 +70,22 @@ export default function CyberLivePage() {
 
   useEffect(() => {
     loadSaved();
+  }, []);
+
+  const loadArchive = async () => {
+    setArchiveLoading(true);
+    try {
+      const res = await cyber.getLiveArchive();
+      setArchiveRows(res.data || []);
+    } catch {
+      message.error('Ошибка загрузки архива Cyber LIVE');
+    } finally {
+      setArchiveLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadArchive();
   }, []);
 
   useEffect(() => {
@@ -135,7 +155,7 @@ export default function CyberLivePage() {
   const addManualRow = () => {
     setRows((prev) => [
       ...prev,
-      { key: `${Date.now()}-${prev.length}`, tournament: '', team1: '', team2: '', total: null, calc_temp: 0 },
+      { key: `${Date.now()}-${prev.length}`, id: null, tournament: '', team1: '', team2: '', total: null, calc_temp: 0 },
     ]);
   };
 
@@ -143,8 +163,49 @@ export default function CyberLivePage() {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   };
 
-  const deleteRow = (key) => {
-    setRows((prev) => prev.filter((r) => r.key !== key));
+  const archiveRow = async (row) => {
+    try {
+      const payload = {
+        live_row_id: row.id ?? null,
+        tournament: row.tournament || '',
+        team1: row.team1 || '',
+        team2: row.team2 || '',
+        total: row.totalComputed ?? row.total ?? null,
+        calc_temp: row.calc_temp ?? 0,
+        temp: row.pred?.temp ?? 0,
+        predict: row.pred?.predict ?? 0,
+        under_value: row.under === '' ? null : Number(row.under),
+        over_value: row.over === '' ? null : Number(row.over),
+        t2h: row.t2h ?? 0,
+        t2h_predict: row.t2hPredict === '' ? null : Number(row.t2hPredict),
+      };
+      await cyber.archiveLive(payload);
+      setRows((prev) => prev.filter((r) => r.key !== row.key));
+      setArchiveRows((prev) => [
+        {
+          ...payload,
+          id: `tmp-${Date.now()}`,
+          archived_at: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+      message.success('Матч отправлен в архив');
+    } catch {
+      message.error('Ошибка архивирования');
+    }
+  };
+
+  const clearArchive = async () => {
+    setArchiveLoading(true);
+    try {
+      await cyber.clearLiveArchive();
+      setArchiveRows([]);
+      message.success('Архив Cyber LIVE очищен');
+    } catch {
+      message.error('Ошибка очистки архива');
+    } finally {
+      setArchiveLoading(false);
+    }
   };
 
   const linesData = useMemo(() => {
@@ -228,10 +289,10 @@ export default function CyberLivePage() {
     {
       title: '',
       key: 'actions',
-      width: 70,
+      width: 90,
       render: (_, row) => (
-        <Button danger size="small" onClick={() => deleteRow(row.key)}>
-          Удалить
+        <Button danger size="small" onClick={() => archiveRow(row)}>
+          В архив
         </Button>
       ),
     },
@@ -245,6 +306,31 @@ export default function CyberLivePage() {
     { title: 'Predict', dataIndex: ['pred', 'predict'], width: 90, render: (_, row) => num(row.pred?.predict) },
     { title: 'IT1', dataIndex: ['pred', 'it1'], width: 90, render: (_, row) => num(row.pred?.it1) },
     { title: 'IT2', dataIndex: ['pred', 'it2'], width: 90, render: (_, row) => num(row.pred?.it2) },
+  ];
+
+  const filteredArchiveRows = useMemo(() => {
+    const q = archiveQuery.trim().toLowerCase();
+    if (!q) return archiveRows;
+    return archiveRows.filter((r) => (
+      String(r.tournament || '').toLowerCase().includes(q)
+      || String(r.team1 || '').toLowerCase().includes(q)
+      || String(r.team2 || '').toLowerCase().includes(q)
+    ));
+  }, [archiveRows, archiveQuery]);
+
+  const archiveColumns = [
+    { title: 'Архив', dataIndex: 'archived_at', width: 170 },
+    { title: 'Турнир', dataIndex: 'tournament', width: 170 },
+    { title: 'Команда 1', dataIndex: 'team1', width: 150 },
+    { title: 'Команда 2', dataIndex: 'team2', width: 150 },
+    { title: 'Тотал', dataIndex: 'total', width: 90, render: (v) => num(v) },
+    { title: 'TEMP', dataIndex: 'temp', width: 80, render: (v) => num(v) },
+    { title: 'Predict', dataIndex: 'predict', width: 90, render: (v) => num(v) },
+    { title: 'UNDER', dataIndex: 'under_value', width: 80, render: (v) => <span style={{ color: '#ff4d4f', fontWeight: 700 }}>{num(v)}</span> },
+    { title: 'OVER', dataIndex: 'over_value', width: 80, render: (v) => <span style={{ color: '#52c41a', fontWeight: 700 }}>{num(v)}</span> },
+    { title: 'CalcTEMP', dataIndex: 'calc_temp', width: 100, render: (v) => num(v) },
+    { title: 'T2H', dataIndex: 't2h', width: 80, render: (v) => num(v) },
+    { title: 'T2H Predict', dataIndex: 't2h_predict', width: 100, render: (v) => num(v) },
   ];
 
   return (
@@ -301,6 +387,42 @@ export default function CyberLivePage() {
             />
           ) : (
             <Empty description="Нет матчей в Lines" />
+          ),
+        },
+        {
+          key: 'archive',
+          label: 'Архив',
+          children: (
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Card size="small" style={{ background: '#1a1a2e', border: '1px solid #333' }}>
+                <Space wrap>
+                  <Input
+                    value={archiveQuery}
+                    onChange={(e) => setArchiveQuery(e.target.value)}
+                    placeholder="Поиск: турнир / команда"
+                    style={{ width: 320 }}
+                    allowClear
+                  />
+                  <Button icon={<ReloadOutlined />} onClick={loadArchive} loading={archiveLoading}>
+                    Обновить архив
+                  </Button>
+                  <Popconfirm title="Очистить весь архив Cyber LIVE?" onConfirm={clearArchive}>
+                    <Button danger icon={<ClearOutlined />} loading={archiveLoading}>
+                      Очистить архив
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              </Card>
+              <Table
+                dataSource={filteredArchiveRows}
+                columns={archiveColumns}
+                rowKey="id"
+                loading={archiveLoading}
+                size="small"
+                scroll={{ x: 1650 }}
+                pagination={{ pageSize: 50 }}
+              />
+            </Space>
           ),
         },
       ]}

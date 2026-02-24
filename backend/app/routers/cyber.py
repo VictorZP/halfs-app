@@ -7,6 +7,8 @@ from fastapi import APIRouter, Query
 from backend.app.schemas.cyber import (
     CyberImportRequest,
     CyberImportResponse,
+    CyberLiveArchiveRequest,
+    CyberLiveArchiveRow,
     CyberLiveRow,
     CyberMatch,
     CyberPredictResponse,
@@ -87,6 +89,7 @@ def get_live():
     rows = svc.get_live_rows()
     return [
         CyberLiveRow(
+            id=r.get("id"),
             tournament=r.get("tournament") or "",
             team1=r.get("team1") or "",
             team2=r.get("team2") or "",
@@ -111,3 +114,42 @@ def replace_live(rows: List[CyberLiveRow]):
 def clear_live():
     svc.clear_live_rows()
     return {"status": "ok"}
+
+
+@router.post("/live/archive")
+def archive_live(req: CyberLiveArchiveRequest):
+    deleted = svc.archive_live_row(req.model_dump())
+    return {"status": "ok", "deleted_from_live": deleted}
+
+
+@router.get("/live/archive", response_model=List[CyberLiveArchiveRow])
+def get_live_archive(limit: int = Query(5000)):
+    rows = svc.get_live_archive_rows(limit=limit)
+    out: List[CyberLiveArchiveRow] = []
+    for r in rows:
+        archived_at = r.get("archived_at")
+        out.append(
+            CyberLiveArchiveRow(
+                id=r.get("id"),
+                live_row_id=r.get("live_row_id"),
+                tournament=r.get("tournament") or "",
+                team1=r.get("team1") or "",
+                team2=r.get("team2") or "",
+                total=r.get("total"),
+                calc_temp=r.get("calc_temp") if r.get("calc_temp") is not None else 0,
+                temp=r.get("temp") if r.get("temp") is not None else 0,
+                predict=r.get("predict") if r.get("predict") is not None else 0,
+                under_value=r.get("under_value"),
+                over_value=r.get("over_value"),
+                t2h=r.get("t2h") if r.get("t2h") is not None else 0,
+                t2h_predict=r.get("t2h_predict"),
+                archived_at=str(archived_at or ""),
+            )
+        )
+    return out
+
+
+@router.delete("/live/archive")
+def clear_archive():
+    deleted = svc.clear_live_archive()
+    return {"status": "ok", "deleted": deleted}
