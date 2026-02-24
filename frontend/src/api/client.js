@@ -58,7 +58,13 @@ export const halfs = {
     }),
   getCoefficients: (tournament, team1, team2, q, h, m) =>
     client.get(`/halfs/coefficients/${tournament}`, {
-      params: { team1, team2, q_threshold: q, h_threshold: h, m_threshold: m },
+      params: {
+        team1,
+        team2,
+        ...(q != null ? { q_threshold: q } : {}),
+        ...(h != null ? { h_threshold: h } : {}),
+        ...(m != null ? { m_threshold: m } : {}),
+      },
     }),
 };
 

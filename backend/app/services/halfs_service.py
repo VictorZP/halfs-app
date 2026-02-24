@@ -415,7 +415,9 @@ def get_quarter_distribution(tournament: str, team1: str, team2: str, total: flo
 
 def get_coefficients(
     tournament: str, team1: str, team2: str,
-    q_threshold: float, h_threshold: float, m_threshold: float,
+    q_threshold: Optional[float] = None,
+    h_threshold: Optional[float] = None,
+    m_threshold: Optional[float] = None,
 ) -> Optional[dict]:
     df = _get_halfs_df(tournament)
     if df.empty:
@@ -430,6 +432,9 @@ def get_coefficients(
     df["h2_total"] = df["q3_total"] + df["q4_total"]
     df["match_total"] = df["h1_total"] + df["h2_total"]
 
+    if q_threshold is None and h_threshold is None and m_threshold is None:
+        return None
+
     teams = sorted(set(df["team_home"]) | set(df["team_away"]))
     counts: Dict[str, Dict[str, int]] = {t: {
         "games": 0, "q1": 0, "q2": 0, "q3": 0, "q4": 0, "h1": 0, "h2": 0, "match": 0,
@@ -439,28 +444,38 @@ def get_coefficients(
         home, away = row["team_home"], row["team_away"]
         counts[home]["games"] += 1
         counts[away]["games"] += 1
-        for q, col in [("q1", "q1_total"), ("q2", "q2_total"), ("q3", "q3_total"), ("q4", "q4_total")]:
-            if row[col] > q_threshold:
-                counts[home][q] += 1
-                counts[away][q] += 1
-        if row["h1_total"] > h_threshold:
-            counts[home]["h1"] += 1
-            counts[away]["h1"] += 1
-        if row["h2_total"] > h_threshold:
-            counts[home]["h2"] += 1
-            counts[away]["h2"] += 1
-        if row["match_total"] > m_threshold:
-            counts[home]["match"] += 1
-            counts[away]["match"] += 1
+        if q_threshold is not None:
+            for q, col in [("q1", "q1_total"), ("q2", "q2_total"), ("q3", "q3_total"), ("q4", "q4_total")]:
+                if row[col] > q_threshold:
+                    counts[home][q] += 1
+                    counts[away][q] += 1
+        if h_threshold is not None:
+            if row["h1_total"] > h_threshold:
+                counts[home]["h1"] += 1
+                counts[away]["h1"] += 1
+            if row["h2_total"] > h_threshold:
+                counts[home]["h2"] += 1
+                counts[away]["h2"] += 1
+        if m_threshold is not None:
+            if row["match_total"] > m_threshold:
+                counts[home]["match"] += 1
+                counts[away]["match"] += 1
 
     if team1 not in counts or team2 not in counts:
         return None
 
-    periods = ["q1", "q2", "q3", "q4", "h1", "h2", "match"]
+    periods: List[str] = []
+    if q_threshold is not None:
+        periods.extend(["q1", "q2", "q3", "q4"])
+    if h_threshold is not None:
+        periods.extend(["h1", "h2"])
+    if m_threshold is not None:
+        periods.append("match")
+
     result: dict = {"over": {}, "under": {}, "counts": {
         "team1": {"name": team1, **counts.get(team1, {})},
         "team2": {"name": team2, **counts.get(team2, {})},
-    }}
+    }, "requested_periods": periods}
     for p in periods:
         overs = counts[team1][p] + counts[team2][p]
         games = counts[team1]["games"] + counts[team2]["games"]

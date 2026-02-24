@@ -97,9 +97,9 @@ def get_coefficients(
     tournament: str,
     team1: str = Query(...),
     team2: str = Query(...),
-    q_threshold: float = Query(..., description="Threshold for quarters"),
-    h_threshold: float = Query(..., description="Threshold for halves"),
-    m_threshold: float = Query(..., description="Threshold for match"),
+    q_threshold: Optional[float] = Query(None, description="Threshold for quarters"),
+    h_threshold: Optional[float] = Query(None, description="Threshold for halves"),
+    m_threshold: Optional[float] = Query(None, description="Threshold for match"),
 ):
     result = svc.get_coefficients(tournament, team1, team2, q_threshold, h_threshold, m_threshold)
     if result is None:

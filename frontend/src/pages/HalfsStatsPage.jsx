@@ -40,8 +40,12 @@ function StatsCoeffTab() {
   }, [selected]);
 
   const calcCoefficients = async () => {
-    if (!selected || !team1 || !team2 || qThr == null || hThr == null || mThr == null) {
-      message.warning('Заполните все поля');
+    if (!selected || !team1 || !team2) {
+      message.warning('Выберите турнир и две команды');
+      return;
+    }
+    if (qThr == null && hThr == null && mThr == null) {
+      message.warning('Введите хотя бы один порог: четверть, половина или матч');
       return;
     }
     setCoeffLoading(true);
@@ -75,7 +79,7 @@ function StatsCoeffTab() {
   ];
 
   const teamOptions = teams.map(t => ({ value: t }));
-  const periods = ['q1', 'q2', 'q3', 'q4', 'h1', 'h2', 'match'];
+  const periods = coeffResult?.requested_periods || [];
   const periodLabels = { q1: 'Q1', q2: 'Q2', q3: 'Q3', q4: 'Q4', h1: '1H', h2: '2H', match: 'Матч' };
 
   return (
