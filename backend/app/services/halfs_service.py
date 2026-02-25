@@ -580,7 +580,11 @@ def get_team_statistics(tournament: str) -> List[dict]:
         return []
 
     results = []
-    for team in df["team_home"].unique():
+    all_teams = sorted(set(df["team_home"].dropna()) | set(df["team_away"].dropna()))
+    for team in all_teams:
+        team = str(team).strip()
+        if not team:
+            continue
         home = df[df["team_home"] == team]
         away = df[df["team_away"] == team]
         n_games = len(home) + len(away)
