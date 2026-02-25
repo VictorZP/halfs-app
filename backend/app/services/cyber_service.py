@@ -629,6 +629,87 @@ def compute_predict(tournament: str, team1: str, team2: str) -> Tuple[float, flo
     return round(predict, 2), round(temp, 2), round(it1, 2), round(it2, 2)
 
 
+def _live_t2h_predict(pre_total: float, predict: float, t2h: float) -> Optional[float]:
+    """Desktop-compatible T2H Predict calculation for Cyber LIVE."""
+    if pre_total == 0 or predict == 0 or t2h == 0:
+        return None
+    if abs(predict - pre_total) < 3:
+        return None
+    pct = (predict - pre_total) / pre_total
+    return round(t2h * (1 + pct), 2)
+
+
+def _is_live_no_data(tournament: str, team1: str, team2: str, predict: float, temp: float, it1: float, it2: float) -> bool:
+    if not str(tournament or "").strip():
+        return False
+    if not str(team1 or "").strip() or not str(team2 or "").strip():
+        return False
+    return abs(predict) < 1e-9 and abs(temp) < 1e-9 and abs(it1) < 1e-9 and abs(it2) < 1e-9
+
+
+def calculate_live_rows(rows: List[dict]) -> List[dict]:
+    """Return Cyber LIVE rows enriched with desktop-equivalent display calculations."""
+    out: List[dict] = []
+    for row in rows:
+        tournament = str((row or {}).get("tournament") or "").strip()
+        team1 = str((row or {}).get("team1") or "").strip()
+        team2 = str((row or {}).get("team2") or "").strip()
+        row_id = (row or {}).get("id")
+        total_raw = (row or {}).get("total")
+        calc_temp_raw = (row or {}).get("calc_temp")
+
+        calc_temp = _to_float(calc_temp_raw)
+        predict, temp, it1, it2 = compute_predict(tournament=tournament, team1=team1, team2=team2)
+
+        # Desktop behavior: if total is empty, display predict as total.
+        if total_raw is None or str(total_raw).strip() == "":
+            pre_total = float(predict)
+            total_out: Optional[float] = None
+        else:
+            pre_total = _to_float(total_raw)
+            total_out = round(pre_total, 2)
+
+        diff = pre_total - float(predict)
+        under_value = round(diff, 2) if diff > 3 else None
+        over_value = round(-diff, 2) if diff < -3 else None
+
+        if abs(temp) > 1e-12:
+            z = pre_total / (2.0 * temp)
+            t2h = float(round(z * ((temp + calc_temp) / 2.0), 2))
+        else:
+            t2h = 0.0
+        t2h_predict = _live_t2h_predict(pre_total=pre_total, predict=float(predict), t2h=t2h)
+
+        out.append(
+            {
+                "id": row_id,
+                "tournament": tournament,
+                "team1": team1,
+                "team2": team2,
+                "total": total_out,
+                "calc_temp": round(calc_temp, 2),
+                "temp": round(float(temp), 2),
+                "predict": round(float(predict), 2),
+                "it1": round(float(it1), 2),
+                "it2": round(float(it2), 2),
+                "under_value": float(under_value) if under_value is not None else None,
+                "over_value": float(over_value) if over_value is not None else None,
+                "t2h": t2h,
+                "t2h_predict": float(t2h_predict) if t2h_predict is not None else None,
+                "no_data": _is_live_no_data(
+                    tournament=tournament,
+                    team1=team1,
+                    team2=team2,
+                    predict=float(predict),
+                    temp=float(temp),
+                    it1=float(it1),
+                    it2=float(it2),
+                ),
+            }
+        )
+    return out
+
+
 def get_live_rows() -> List[dict]:
     with get_cyber_connection() as conn:
         cur = conn.cursor()

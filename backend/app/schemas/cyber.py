@@ -58,6 +58,24 @@ class CyberLiveRow(BaseModel):
     calc_temp: Optional[float] = 0
 
 
+class CyberLiveCalculatedRow(BaseModel):
+    id: Optional[int] = None
+    tournament: str = ""
+    team1: str = ""
+    team2: str = ""
+    total: Optional[float] = None
+    calc_temp: Optional[float] = 0
+    temp: float = 0
+    predict: float = 0
+    it1: float = 0
+    it2: float = 0
+    under_value: Optional[float] = None
+    over_value: Optional[float] = None
+    t2h: float = 0
+    t2h_predict: Optional[float] = None
+    no_data: bool = False
+
+
 class CyberPredictResponse(BaseModel):
     predict: float
     temp: float

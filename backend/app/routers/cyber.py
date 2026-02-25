@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query
 from backend.app.schemas.cyber import (
     CyberImportRequest,
     CyberImportResponse,
+    CyberLiveCalculatedRow,
     CyberLiveArchiveRequest,
     CyberLiveArchiveRow,
     CyberMergeTournamentsRequest,
@@ -122,6 +123,23 @@ def get_live():
         )
         for r in rows
     ]
+
+
+@router.post("/live/calculate", response_model=List[CyberLiveCalculatedRow])
+def calculate_live(rows: List[CyberLiveRow]):
+    payload = [
+        {
+            "id": r.id,
+            "tournament": r.tournament,
+            "team1": r.team1,
+            "team2": r.team2,
+            "total": r.total,
+            "calc_temp": r.calc_temp if r.calc_temp is not None else 0,
+        }
+        for r in rows
+    ]
+    calculated = svc.calculate_live_rows(payload)
+    return [CyberLiveCalculatedRow(**row) for row in calculated]
 
 
 @router.put("/live")

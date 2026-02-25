@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Card,
@@ -46,18 +46,26 @@ export default function CyberLivePage() {
   const [loading, setLoading] = useState(false);
   const [inputText, setInputText] = useState('');
   const [rows, setRows] = useState([]);
-  const [predictMap, setPredictMap] = useState({});
+  const [calcMap, setCalcMap] = useState({});
+  const [calcLoading, setCalcLoading] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveRows, setArchiveRows] = useState([]);
   const [archiveQuery, setArchiveQuery] = useState('');
   const [selectedArchiveRowKeys, setSelectedArchiveRowKeys] = useState([]);
+  const localKeyRef = useRef(1);
+
+  const makeKey = (seed = '') => {
+    const next = localKeyRef.current;
+    localKeyRef.current += 1;
+    return `${seed || 'live'}-${next}`;
+  };
 
   const loadSaved = async () => {
     setLoading(true);
     try {
       const res = await cyber.getLive();
       const prepared = (res.data || []).map((r, idx) => ({
-        key: `${idx}-${r.tournament}-${r.team1}-${r.team2}`,
+        key: r.id != null ? `db-${r.id}` : makeKey(`load-${idx}`),
         id: r.id ?? null,
         tournament: r.tournament || '',
         team1: r.team1 || '',
@@ -94,21 +102,41 @@ export default function CyberLivePage() {
   }, []);
 
   useEffect(() => {
-    const run = async () => {
-      const next = {};
-      for (const r of rows) {
-        if (!r.tournament || !r.team1 || !r.team2) continue;
-        try {
-          const res = await cyber.getPredict(r.tournament, r.team1, r.team2);
-          next[r.key] = res.data;
-        } catch {
-          next[r.key] = { predict: 0, temp: 0, it1: 0, it2: 0 };
-        }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (!rows.length) {
+        setCalcMap({});
+        return;
       }
-      setPredictMap(next);
+      setCalcLoading(true);
+      try {
+        const payload = rows.map((r) => ({
+          id: r.id ?? null,
+          tournament: r.tournament || '',
+          team1: r.team1 || '',
+          team2: r.team2 || '',
+          total: r.total == null || r.total === '' ? null : Number(r.total),
+          calc_temp: r.calc_temp == null || r.calc_temp === '' ? 0 : Number(r.calc_temp),
+        }));
+        const res = await cyber.calculateLive(payload);
+        if (cancelled) return;
+        const calculatedRows = res.data || [];
+        const next = {};
+        rows.forEach((r, idx) => {
+          const calc = calculatedRows[idx] || {};
+          next[r.key] = calc;
+        });
+        setCalcMap(next);
+      } catch {
+        if (!cancelled) setCalcMap({});
+      } finally {
+        if (!cancelled) setCalcLoading(false);
+      }
+    }, 180);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
     };
-    if (rows.length) run();
-    else setPredictMap({});
   }, [rows]);
 
   const saveRows = async () => {
@@ -118,7 +146,7 @@ export default function CyberLivePage() {
         tournament: r.tournament || '',
         team1: r.team1 || '',
         team2: r.team2 || '',
-        total: r.total == null || r.total === '' ? null : Number(r.total),
+        total: r.total == null || r.total === '' ? (calcMap[r.key]?.predict ?? null) : Number(r.total),
         calc_temp: r.calc_temp == null || r.calc_temp === '' ? 0 : Number(r.calc_temp),
       }));
       await cyber.saveLive(payload);
@@ -135,7 +163,7 @@ export default function CyberLivePage() {
     try {
       await cyber.clearLive();
       setRows([]);
-      setPredictMap({});
+      setCalcMap({});
       message.success('Cyber LIVE очищен');
     } catch {
       message.error('Ошибка очистки');
@@ -150,7 +178,7 @@ export default function CyberLivePage() {
       message.warning('Нет валидных строк для импорта');
       return;
     }
-    const merged = [...rows, ...parsed].map((r, idx) => ({ ...r, key: `${idx}-${r.tournament}-${r.team1}-${r.team2}` }));
+    const merged = [...rows, ...parsed].map((r) => ({ ...r, key: r.key || makeKey('import') }));
     merged.sort((a, b) => a.tournament.localeCompare(b.tournament));
     setRows(merged);
     setInputText('');
@@ -160,7 +188,7 @@ export default function CyberLivePage() {
   const addManualRow = () => {
     setRows((prev) => [
       ...prev,
-      { key: `${Date.now()}-${prev.length}`, id: null, tournament: '', team1: '', team2: '', total: null, calc_temp: 0 },
+      { key: makeKey('manual'), id: null, tournament: '', team1: '', team2: '', total: null, calc_temp: 0 },
     ]);
   };
 
@@ -179,14 +207,14 @@ export default function CyberLivePage() {
         tournament: row.tournament || '',
         team1: row.team1 || '',
         team2: row.team2 || '',
-        total: row.totalComputed ?? row.total ?? null,
+        total: row.total ?? row.predict ?? null,
         calc_temp: row.calc_temp ?? 0,
-        temp: row.pred?.temp ?? 0,
-        predict: row.pred?.predict ?? 0,
-        under_value: row.under === '' ? null : Number(row.under),
-        over_value: row.over === '' ? null : Number(row.over),
+        temp: row.temp ?? 0,
+        predict: row.predict ?? 0,
+        under_value: row.under_value == null ? null : Number(row.under_value),
+        over_value: row.over_value == null ? null : Number(row.over_value),
         t2h: row.t2h ?? 0,
-        t2h_predict: row.t2hPredict === '' ? null : Number(row.t2hPredict),
+        t2h_predict: row.t2h_predict == null ? null : Number(row.t2h_predict),
       };
       const res = await cyber.archiveLive(payload);
       const result = res.data || {};
@@ -234,19 +262,21 @@ export default function CyberLivePage() {
   };
 
   const linesData = useMemo(() => {
-    return rows.map((r) => {
-      const pred = predictMap[r.key] || { predict: 0, temp: 0, it1: 0, it2: 0 };
-      const total = r.total == null || r.total === '' ? pred.predict : Number(r.total);
-      const under = total - pred.predict > 3 ? total - pred.predict : '';
-      const over = pred.predict - total > 3 ? pred.predict - total : '';
-      const temp = Number(pred.temp || 0);
-      const calcTemp = Number(r.calc_temp || 0);
-      const t2h = temp !== 0 ? (total / (2 * temp)) * ((temp + calcTemp) / 2) : 0;
-      const t2hPredict =
-        total && Math.abs(pred.predict - total) >= 3 ? t2h * (1 + (pred.predict - total) / total) : '';
-      return { ...r, pred, totalComputed: total, under, over, t2h, t2hPredict };
-    });
-  }, [rows, predictMap]);
+    return rows.map((r) => ({
+      ...r,
+      ...(calcMap[r.key] || {
+        temp: 0,
+        predict: 0,
+        it1: 0,
+        it2: 0,
+        under_value: null,
+        over_value: null,
+        t2h: 0,
+        t2h_predict: null,
+        no_data: false,
+      }),
+    }));
+  }, [rows, calcMap]);
 
   const linesColumns = [
     {
@@ -275,24 +305,29 @@ export default function CyberLivePage() {
       width: 90,
       render: (_, row) => (
         <InputNumber
-          value={row.total}
+          value={row.total ?? row.predict}
           onChange={(v) => updateRow(row.key, { total: v })}
           style={{ width: '100%' }}
           step={0.5}
         />
       ),
     },
-    { title: 'TEMP', dataIndex: ['pred', 'temp'], width: 80, render: (_, row) => num(row.pred?.temp) },
-    { title: 'Predict', dataIndex: ['pred', 'predict'], width: 90, render: (_, row) => num(row.pred?.predict) },
+    {
+      title: 'TEMP',
+      dataIndex: 'temp',
+      width: 110,
+      render: (_, row) => (row.no_data ? <span style={{ color: '#8c8c8c' }}>нет данных</span> : num(row.temp)),
+    },
+    { title: 'Predict', dataIndex: 'predict', width: 90, render: (_, row) => num(row.predict) },
     {
       title: 'UNDER',
-      dataIndex: 'under',
+      dataIndex: 'under_value',
       width: 80,
       render: (v) => <span style={{ color: '#ff4d4f', fontWeight: 700 }}>{num(v)}</span>,
     },
     {
       title: 'OVER',
-      dataIndex: 'over',
+      dataIndex: 'over_value',
       width: 80,
       render: (v) => <span style={{ color: '#52c41a', fontWeight: 700 }}>{num(v)}</span>,
     },
@@ -317,7 +352,7 @@ export default function CyberLivePage() {
       ),
     },
     { title: 'T2H', dataIndex: 't2h', width: 80, render: (v) => num(v) },
-    { title: 'T2H Predict', dataIndex: 't2hPredict', width: 100, render: (v) => num(v) },
+    { title: 'T2H Predict', dataIndex: 't2h_predict', width: 100, render: (v) => num(v) },
     {
       title: '',
       key: 'actions',
@@ -340,10 +375,10 @@ export default function CyberLivePage() {
     { title: 'Турнир', dataIndex: 'tournament', width: 170 },
     { title: 'Команда 1', dataIndex: 'team1', width: 170 },
     { title: 'Команда 2', dataIndex: 'team2', width: 170 },
-    { title: 'TEMP', dataIndex: ['pred', 'temp'], width: 90, render: (_, row) => num(row.pred?.temp) },
-    { title: 'Predict', dataIndex: ['pred', 'predict'], width: 90, render: (_, row) => num(row.pred?.predict) },
-    { title: 'IT1', dataIndex: ['pred', 'it1'], width: 90, render: (_, row) => num(row.pred?.it1) },
-    { title: 'IT2', dataIndex: ['pred', 'it2'], width: 90, render: (_, row) => num(row.pred?.it2) },
+    { title: 'TEMP', dataIndex: 'temp', width: 90, render: (_, row) => num(row.temp) },
+    { title: 'Predict', dataIndex: 'predict', width: 90, render: (_, row) => num(row.predict) },
+    { title: 'IT1', dataIndex: 'it1', width: 90, render: (_, row) => num(row.it1) },
+    { title: 'IT2', dataIndex: 'it2', width: 90, render: (_, row) => num(row.it2) },
   ];
 
   const filteredArchiveRows = useMemo(() => {
@@ -403,7 +438,7 @@ export default function CyberLivePage() {
                 dataSource={linesData}
                 columns={linesColumns}
                 rowKey="key"
-                loading={loading}
+                loading={loading || calcLoading}
                 size="small"
                 scroll={{ x: 1550 }}
                 pagination={false}

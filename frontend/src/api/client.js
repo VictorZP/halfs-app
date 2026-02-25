@@ -120,6 +120,7 @@ export const cyber = {
   getPredict: (tournament, team1, team2) =>
     client.get('/cyber/predict', { params: { tournament, team1, team2 } }),
   getLive: () => client.get('/cyber/live'),
+  calculateLive: (rows) => client.post('/cyber/live/calculate', rows),
   saveLive: (rows) => client.put('/cyber/live', rows),
   archiveLive: (row) => client.post('/cyber/live/archive', row),
   getLiveArchive: (limit = 5000) => client.get('/cyber/live/archive', { params: { limit } }),
