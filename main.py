@@ -5634,6 +5634,11 @@ class HalfsDatabasePage(QWidget):
         self.replace_btn.setMinimumHeight(30)
         self.replace_btn.clicked.connect(self.replace_values_dialog)
         filter_layout.addWidget(self.replace_btn)
+        # Кнопка объединения турниров
+        self.merge_tournaments_btn = QPushButton("Объеденить турниры")
+        self.merge_tournaments_btn.setMinimumHeight(30)
+        self.merge_tournaments_btn.clicked.connect(self.merge_tournaments_dialog)
+        filter_layout.addWidget(self.merge_tournaments_btn)
         filter_layout.addStretch()
         layout.addLayout(filter_layout)
         layout.addSpacing(10)
@@ -6092,6 +6097,71 @@ class HalfsDatabasePage(QWidget):
                 dialog.accept()
             except Exception as ex:
                 QMessageBox.critical(dialog, "Ошибка", f"Ошибка при переименовании: {str(ex)}")
+
+        save_btn.clicked.connect(on_save)
+        cancel_btn.clicked.connect(dialog.reject)
+        dialog.exec_()
+
+    def merge_tournaments_dialog(self) -> None:
+        """Объединяет несколько турниров в один."""
+        if not self.db:
+            QMessageBox.critical(self, "Ошибка", "База данных недоступна.")
+            return
+        try:
+            all_df = self.db._load_matches()
+            tournaments = sorted(set(all_df["tournament"]))
+        except Exception as exc:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось получить турниры: {exc}")
+            return
+        if not tournaments:
+            QMessageBox.information(self, "Объединение турниров", "В базе нет турниров.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Объеденить турниры")
+        dlg_layout = QVBoxLayout(dialog)
+        dlg_layout.addWidget(QLabel("Выберите турниры для объединения:"))
+
+        list_widget = QListWidget(dialog)
+        list_widget.setSelectionMode(QAbstractItemView.MultiSelection)
+        for tournament in tournaments:
+            list_widget.addItem(QListWidgetItem(str(tournament)))
+        dlg_layout.addWidget(list_widget)
+
+        dlg_layout.addWidget(QLabel("В какой турнир объединить:"))
+        target_edit = QLineEdit(dialog)
+        target_edit.setPlaceholderText("Например: EL (W)")
+        dlg_layout.addWidget(target_edit)
+
+        btn_layout = QHBoxLayout()
+        save_btn = QPushButton("Объединить")
+        cancel_btn = QPushButton("Отмена")
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(cancel_btn)
+        dlg_layout.addLayout(btn_layout)
+
+        def on_save() -> None:
+            selected = [item.text().strip() for item in list_widget.selectedItems() if item.text().strip()]
+            target = target_edit.text().strip()
+            if not selected:
+                QMessageBox.warning(dialog, "Внимание", "Выберите хотя бы один турнир.")
+                return
+            if not target:
+                QMessageBox.warning(dialog, "Внимание", "Введите целевой турнир.")
+                return
+            sources = [name for name in selected if name != target]
+            if not sources:
+                QMessageBox.information(dialog, "Объединение", "Нет турниров для объединения.")
+                return
+            updated = 0
+            try:
+                for src in sources:
+                    updated += self.db.rename_tournament(src, target)
+                self.load_matches()
+                QMessageBox.information(dialog, "Готово", f"Обновлено записей: {updated}")
+                dialog.accept()
+            except Exception as exc:
+                QMessageBox.critical(dialog, "Ошибка", f"Ошибка объединения: {exc}")
 
         save_btn.clicked.connect(on_save)
         cancel_btn.clicked.connect(dialog.reject)
@@ -11252,6 +11322,31 @@ class CybersDatabase:
         self.invalidate_cache()
         return deleted
 
+    def merge_tournaments(self, source_tournaments: List[str], target_tournament: str) -> int:
+        target = str(target_tournament or "").strip()
+        if not target:
+            return 0
+        sources: List[str] = []
+        for value in source_tournaments or []:
+            name = str(value or "").strip()
+            if name and name not in sources and name != target:
+                sources.append(name)
+        if not sources:
+            return 0
+
+        updated = 0
+        with self._connect() as conn:
+            cur = conn.cursor()
+            for src in sources:
+                cur.execute(
+                    "UPDATE cyber_matches SET tournament = ? WHERE tournament = ?",
+                    (target, src),
+                )
+                updated += max(cur.rowcount, 0)
+            conn.commit()
+        self.invalidate_cache()
+        return updated
+
     def update_match_field(self, row_id: int, field: str, value) -> None:
         if not row_id or not field:
             return
@@ -11800,6 +11895,10 @@ class CybersBasesPage(QWidget):
         self.replace_btn = QPushButton("Заменить")
         self.replace_btn.clicked.connect(self.replace_values_dialog)
         delete_layout.addWidget(self.replace_btn)
+
+        self.merge_tournaments_btn = QPushButton("Объеденить турниры")
+        self.merge_tournaments_btn.clicked.connect(self.merge_tournaments_dialog)
+        delete_layout.addWidget(self.merge_tournaments_btn)
 
         self.open_tournament_btn = QPushButton("Открыть турнир")
         self.open_tournament_btn.clicked.connect(self.open_tournament_dialog)
@@ -12594,6 +12693,56 @@ class CybersBasesPage(QWidget):
 
         delete_btn.clicked.connect(on_delete)
         close_btn.clicked.connect(dialog.reject)
+        dialog.exec_()
+
+    def merge_tournaments_dialog(self) -> None:
+        if not self.db:
+            QMessageBox.warning(self, "Ошибка", "База данных недоступна.")
+            return
+        tournaments = self.db.get_tournaments()
+        if not tournaments:
+            QMessageBox.information(self, "Объединение турниров", "В базе нет турниров.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Объеденить турниры")
+        dlg_layout = QVBoxLayout(dialog)
+        dlg_layout.addWidget(QLabel("Выберите турниры для объединения:"))
+
+        list_widget = QListWidget(dialog)
+        list_widget.setSelectionMode(QAbstractItemView.MultiSelection)
+        for tournament in tournaments:
+            list_widget.addItem(QListWidgetItem(str(tournament)))
+        dlg_layout.addWidget(list_widget)
+
+        dlg_layout.addWidget(QLabel("В какой турнир объединить:"))
+        target_edit = QLineEdit(dialog)
+        target_edit.setPlaceholderText("Например: EL (W)")
+        dlg_layout.addWidget(target_edit)
+
+        btn_layout = QHBoxLayout()
+        merge_btn = QPushButton("Объединить")
+        cancel_btn = QPushButton("Отмена")
+        btn_layout.addWidget(merge_btn)
+        btn_layout.addWidget(cancel_btn)
+        dlg_layout.addLayout(btn_layout)
+
+        def on_merge() -> None:
+            selected = [item.text().strip() for item in list_widget.selectedItems() if item.text().strip()]
+            target = target_edit.text().strip()
+            if not selected:
+                QMessageBox.warning(dialog, "Внимание", "Выберите хотя бы один турнир.")
+                return
+            if not target:
+                QMessageBox.warning(dialog, "Внимание", "Введите целевой турнир.")
+                return
+            updated = self.db.merge_tournaments(selected, target)
+            QMessageBox.information(dialog, "Готово", f"Обновлено записей: {updated}")
+            self.reload_table()
+            dialog.accept()
+
+        merge_btn.clicked.connect(on_merge)
+        cancel_btn.clicked.connect(dialog.reject)
         dialog.exec_()
 
     def replace_values_dialog(self) -> None:

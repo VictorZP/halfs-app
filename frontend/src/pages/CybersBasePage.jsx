@@ -15,7 +15,7 @@ import {
   Table,
   Tabs,
 } from 'antd';
-import { CalendarOutlined, ClearOutlined, DeleteOutlined, EditOutlined, ImportOutlined, ReloadOutlined } from '@ant-design/icons';
+import { CalendarOutlined, ClearOutlined, DeleteOutlined, EditOutlined, ImportOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { cyber } from '../api/client';
 
 const { TextArea } = Input;
@@ -52,6 +52,14 @@ export default function CybersBasePage() {
   const [dateEditOpen, setDateEditOpen] = useState(false);
   const [dateEditRecord, setDateEditRecord] = useState(null);
   const [dateEditValue, setDateEditValue] = useState('');
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [replaceOld, setReplaceOld] = useState('');
+  const [replaceNew, setReplaceNew] = useState('');
+  const [replaceScope, setReplaceScope] = useState('all');
+  const [replaceTournament, setReplaceTournament] = useState(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeSources, setMergeSources] = useState([]);
+  const [mergeTarget, setMergeTarget] = useState('');
 
   const loadAll = async () => {
     setLoading(true);
@@ -185,6 +193,56 @@ export default function CybersBasePage() {
     }
   };
 
+  const runReplace = async () => {
+    if (!replaceOld.trim()) {
+      message.warning('Введите, что заменить');
+      return;
+    }
+    if (replaceScope === 'tournament' && !replaceTournament) {
+      message.warning('Выберите турнир для замены');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await cyber.replaceValues(
+        replaceOld,
+        replaceNew,
+        replaceScope,
+        replaceScope === 'tournament' ? replaceTournament : null
+      );
+      message.success(`Заменено: ${res.data?.replaced || 0}`);
+      setReplaceOpen(false);
+      loadAll();
+    } catch {
+      message.error('Ошибка замены');
+      setLoading(false);
+    }
+  };
+
+  const runMergeTournaments = async () => {
+    const target = mergeTarget.trim();
+    if (!mergeSources.length) {
+      message.warning('Выберите хотя бы один турнир');
+      return;
+    }
+    if (!target) {
+      message.warning('Введите название целевого турнира');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await cyber.mergeTournaments(mergeSources, target);
+      message.success(`Объединено записей: ${res.data?.updated || 0}`);
+      setMergeOpen(false);
+      setMergeSources([]);
+      setMergeTarget('');
+      loadAll();
+    } catch {
+      message.error('Ошибка объединения турниров');
+      setLoading(false);
+    }
+  };
+
   const baseTab = (
     <Space direction="vertical" style={{ width: '100%' }}>
       <Row gutter={16}>
@@ -240,6 +298,16 @@ export default function CybersBasePage() {
         </Popconfirm>
         <Button icon={<CalendarOutlined />} onClick={normalizeDates} loading={loading}>
           Нормализовать даты
+        </Button>
+        <Button icon={<SearchOutlined />} onClick={() => {
+          setReplaceTournament(filterTournament || null);
+          setReplaceScope(filterTournament ? 'tournament' : 'all');
+          setReplaceOpen(true);
+        }}>
+          Заменить
+        </Button>
+        <Button onClick={() => setMergeOpen(true)}>
+          Объединить турниры
         </Button>
       </Space>
 
@@ -310,6 +378,72 @@ export default function CybersBasePage() {
           onChange={(e) => setDateEditValue(e.target.value)}
           placeholder="Например: 21.02.2026, 02.21.26, 2026-02-21"
         />
+      </Modal>
+
+      <Modal
+        title="Поиск и замена (Cybers)"
+        open={replaceOpen}
+        onCancel={() => setReplaceOpen(false)}
+        onOk={runReplace}
+        okText="Заменить"
+        confirmLoading={loading}
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Input
+            value={replaceOld}
+            onChange={(e) => setReplaceOld(e.target.value)}
+            placeholder="Что заменить"
+          />
+          <Input
+            value={replaceNew}
+            onChange={(e) => setReplaceNew(e.target.value)}
+            placeholder="На что заменить"
+          />
+          <Select
+            value={replaceScope}
+            onChange={setReplaceScope}
+            options={[
+              { label: 'Во всей таблице', value: 'all' },
+              { label: 'Только в выбранном турнире', value: 'tournament' },
+            ]}
+          />
+          {replaceScope === 'tournament' && (
+            <Select
+              showSearch
+              value={replaceTournament}
+              onChange={setReplaceTournament}
+              options={tournamentOptions}
+              placeholder="Выберите турнир"
+              filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+            />
+          )}
+        </Space>
+      </Modal>
+
+      <Modal
+        title="Объединить турниры (Cybers)"
+        open={mergeOpen}
+        onCancel={() => setMergeOpen(false)}
+        onOk={runMergeTournaments}
+        okText="Объединить"
+        confirmLoading={loading}
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Select
+            mode="multiple"
+            showSearch
+            value={mergeSources}
+            onChange={setMergeSources}
+            options={tournamentOptions}
+            placeholder="Какие турниры объединить"
+            filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+          />
+          <Input
+            value={mergeTarget}
+            onChange={(e) => setMergeTarget(e.target.value)}
+            placeholder="В какой турнир объединить (например EL (W))"
+          />
+        </Space>
       </Modal>
     </>
   );

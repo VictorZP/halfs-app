@@ -50,6 +50,10 @@ export const halfs = {
     client.patch(`/halfs/matches/${id}`, { field, value }),
   normalizeDates: () =>
     client.post('/halfs/matches/normalize-dates'),
+  replaceValues: (oldValue, newValue, scope = 'all', tournament = null) =>
+    client.post('/halfs/replace', { old_value: oldValue, new_value: newValue, scope, tournament }),
+  mergeTournaments: (sourceTournaments, targetTournament) =>
+    client.post('/halfs/tournaments/merge', { source_tournaments: sourceTournaments, target_tournament: targetTournament }),
   deleteMatches: (ids) => client.delete('/halfs/matches', { data: { ids } }),
   clearAll: () => client.delete('/halfs/matches/all'),
   getTournaments: () => client.get('/halfs/tournaments'),
@@ -104,6 +108,10 @@ export const cyber = {
     client.patch(`/cyber/matches/${id}`, { field, value }),
   normalizeDates: () =>
     client.post('/cyber/matches/normalize-dates'),
+  replaceValues: (oldValue, newValue, scope = 'all', tournament = null) =>
+    client.post('/cyber/matches/replace', { old_value: oldValue, new_value: newValue, scope, tournament }),
+  mergeTournaments: (sourceTournaments, targetTournament) =>
+    client.post('/cyber/tournaments/merge', { source_tournaments: sourceTournaments, target_tournament: targetTournament }),
   deleteMatches: (ids) => client.delete('/cyber/matches', { data: { ids } }),
   clearAll: () => client.delete('/cyber/matches/all'),
   getTournaments: () => client.get('/cyber/tournaments'),

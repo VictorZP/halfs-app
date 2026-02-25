@@ -524,6 +524,132 @@ def normalize_existing_dates() -> int:
     return updated
 
 
+def replace_values(old_value: str, new_value: str, scope: str = "all", tournament: Optional[str] = None) -> int:
+    old_text = str(old_value or "")
+    if not old_text:
+        return 0
+    scope_mode = (scope or "all").strip().lower()
+    fields = (
+        "date",
+        "tournament",
+        "team_home",
+        "team_away",
+        "q1_home",
+        "q1_away",
+        "q2_home",
+        "q2_away",
+        "q3_home",
+        "q3_away",
+        "q4_home",
+        "q4_away",
+        "ot_home",
+        "ot_away",
+    )
+
+    def _prepare(field: str, text: str):
+        if field == "date":
+            iso = _parse_loose_date_to_iso(text)
+            return iso if iso is not None else text
+        if field in {"tournament", "team_home", "team_away"}:
+            return _denormalize_marker(text)
+        t = str(text).strip()
+        if t == "":
+            return None
+        try:
+            return int(float(t))
+        except Exception:
+            return None
+
+    with get_halfs_connection() as conn:
+        cur = conn.cursor()
+        if scope_mode == "tournament" and tournament:
+            cur.execute(
+                """
+                SELECT id, date, tournament, team_home, team_away,
+                       q1_home, q1_away, q2_home, q2_away, q3_home, q3_away, q4_home, q4_away, ot_home, ot_away
+                FROM matches
+                WHERE tournament = ? OR REPLACE(tournament, '~', ' ') = ?
+                """,
+                (tournament, tournament),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, date, tournament, team_home, team_away,
+                       q1_home, q1_away, q2_home, q2_away, q3_home, q3_away, q4_home, q4_away, ot_home, ot_away
+                FROM matches
+                """
+            )
+
+        rows = cur.fetchall()
+        updates_by_field: Dict[str, List[Tuple[object, int]]] = {field: [] for field in fields}
+        replaced = 0
+        for row in rows:
+            match_id = row[0]
+            values = {
+                "date": row[1],
+                "tournament": row[2],
+                "team_home": row[3],
+                "team_away": row[4],
+                "q1_home": row[5],
+                "q1_away": row[6],
+                "q2_home": row[7],
+                "q2_away": row[8],
+                "q3_home": row[9],
+                "q3_away": row[10],
+                "q4_home": row[11],
+                "q4_away": row[12],
+                "ot_home": row[13],
+                "ot_away": row[14],
+            }
+            for field in fields:
+                current = values.get(field)
+                current_text = "" if current is None else str(current)
+                if old_text not in current_text:
+                    continue
+                replaced_text = current_text.replace(old_text, str(new_value))
+                if replaced_text == current_text:
+                    continue
+                updated = _prepare(field, replaced_text)
+                updates_by_field[field].append((updated, match_id))
+                replaced += 1
+
+        for field, payload in updates_by_field.items():
+            if payload:
+                cur.executemany(f"UPDATE matches SET {field} = ? WHERE id = ?", payload)
+        conn.commit()
+        return replaced
+
+
+def merge_tournaments(source_tournaments: List[str], target_tournament: str) -> int:
+    target = str(target_tournament or "").strip()
+    if not target:
+        return 0
+    sources = []
+    for value in source_tournaments or []:
+        name = str(value or "").strip()
+        if name and name not in sources and name != target:
+            sources.append(name)
+    if not sources:
+        return 0
+
+    updated = 0
+    with get_halfs_connection() as conn:
+        cur = conn.cursor()
+        for src in sources:
+            cur.execute(
+                """
+                UPDATE matches
+                SET tournament = ?
+                WHERE tournament = ? OR REPLACE(tournament, '~', ' ') = ?
+                """,
+                (target, src, src),
+            )
+            updated += max(cur.rowcount, 0)
+        conn.commit()
+    return updated
+
+
 def get_statistics() -> dict:
     with get_halfs_connection() as conn:
         cur = conn.cursor()

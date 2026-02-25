@@ -97,6 +97,26 @@ class CyberLiveArchiveRow(BaseModel):
     archived_at: str = ""
 
 
+class CyberReplaceValuesRequest(BaseModel):
+    old_value: str
+    new_value: str = ""
+    scope: str = "all"  # all | tournament
+    tournament: Optional[str] = None
+
+
+class CyberReplaceValuesResponse(BaseModel):
+    replaced: int
+
+
+class CyberMergeTournamentsRequest(BaseModel):
+    source_tournaments: List[str]
+    target_tournament: str
+
+
+class CyberMergeTournamentsResponse(BaseModel):
+    updated: int
+
+
 class CyberSummaryRow(BaseModel):
     tournament: str
     games: int

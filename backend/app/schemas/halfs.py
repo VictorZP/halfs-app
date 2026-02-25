@@ -102,3 +102,23 @@ class StatisticsResponse(BaseModel):
 
 class NormalizeDatesResponse(BaseModel):
     updated: int
+
+
+class ReplaceValuesRequest(BaseModel):
+    old_value: str
+    new_value: str = ""
+    scope: str = "all"  # all | tournament
+    tournament: Optional[str] = None
+
+
+class ReplaceValuesResponse(BaseModel):
+    replaced: int
+
+
+class MergeTournamentsRequest(BaseModel):
+    source_tournaments: List[str]
+    target_tournament: str
+
+
+class MergeTournamentsResponse(BaseModel):
+    updated: int

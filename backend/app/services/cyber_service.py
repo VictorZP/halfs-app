@@ -269,6 +269,131 @@ def normalize_existing_dates() -> int:
     return updated
 
 
+def replace_values(old_value: str, new_value: str, scope: str = "all", tournament: Optional[str] = None) -> int:
+    old_text = str(old_value or "")
+    if not old_text:
+        return 0
+    scope_mode = (scope or "all").strip().lower()
+    fields = (
+        "date",
+        "tournament",
+        "team",
+        "home_away",
+        "two_pt_made",
+        "two_pt_attempt",
+        "three_pt_made",
+        "three_pt_attempt",
+        "fta_made",
+        "fta_attempt",
+        "off_rebound",
+        "turnovers",
+        "controls",
+        "points",
+        "opponent",
+        "attak_kef",
+        "status",
+    )
+
+    def _prepare(field: str, text: str):
+        if field == "date":
+            return _normalize_date(text)
+        if field in {"tournament", "team", "home_away", "opponent", "status"}:
+            return str(text).strip()
+        return _to_float(text)
+
+    with get_cyber_connection() as conn:
+        cur = conn.cursor()
+        if scope_mode == "tournament" and tournament:
+            cur.execute(
+                """
+                SELECT id, date, tournament, team, home_away,
+                       two_pt_made, two_pt_attempt, three_pt_made, three_pt_attempt,
+                       fta_made, fta_attempt, off_rebound, turnovers, controls, points,
+                       opponent, attak_kef, status
+                FROM cyber_matches
+                WHERE tournament = ?
+                """,
+                (tournament,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, date, tournament, team, home_away,
+                       two_pt_made, two_pt_attempt, three_pt_made, three_pt_attempt,
+                       fta_made, fta_attempt, off_rebound, turnovers, controls, points,
+                       opponent, attak_kef, status
+                FROM cyber_matches
+                """
+            )
+
+        rows = cur.fetchall()
+        updates_by_field: Dict[str, List[Tuple[object, int]]] = {field: [] for field in fields}
+        replaced = 0
+        for row in rows:
+            row_id = row[0]
+            values = {
+                "date": row[1],
+                "tournament": row[2],
+                "team": row[3],
+                "home_away": row[4],
+                "two_pt_made": row[5],
+                "two_pt_attempt": row[6],
+                "three_pt_made": row[7],
+                "three_pt_attempt": row[8],
+                "fta_made": row[9],
+                "fta_attempt": row[10],
+                "off_rebound": row[11],
+                "turnovers": row[12],
+                "controls": row[13],
+                "points": row[14],
+                "opponent": row[15],
+                "attak_kef": row[16],
+                "status": row[17],
+            }
+            for field in fields:
+                current = values.get(field)
+                current_text = "" if current is None else str(current)
+                if old_text not in current_text:
+                    continue
+                replaced_text = current_text.replace(old_text, str(new_value))
+                if replaced_text == current_text:
+                    continue
+                updated = _prepare(field, replaced_text)
+                updates_by_field[field].append((updated, row_id))
+                replaced += 1
+
+        for field, payload in updates_by_field.items():
+            if payload:
+                cur.executemany(f"UPDATE cyber_matches SET {field} = ? WHERE id = ?", payload)
+        conn.commit()
+    return replaced
+
+
+def merge_tournaments(source_tournaments: List[str], target_tournament: str) -> int:
+    target = str(target_tournament or "").strip()
+    if not target:
+        return 0
+    sources = []
+    for value in source_tournaments or []:
+        name = str(value or "").strip()
+        if name and name not in sources and name != target:
+            sources.append(name)
+    if not sources:
+        return 0
+
+    updated = 0
+    with get_cyber_connection() as conn:
+        cur = conn.cursor()
+        for src in sources:
+            cur.execute(
+                "UPDATE cyber_matches SET tournament = ? WHERE tournament = ?",
+                (target, src),
+            )
+            updated += max(cur.rowcount, 0)
+        conn.commit()
+    return updated
+
+
 def get_summary(tournament: Optional[str] = None) -> List[dict]:
     df = _get_df(tournament=tournament)
     if df.empty:

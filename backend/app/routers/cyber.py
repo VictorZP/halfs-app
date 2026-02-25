@@ -9,9 +9,13 @@ from backend.app.schemas.cyber import (
     CyberImportResponse,
     CyberLiveArchiveRequest,
     CyberLiveArchiveRow,
+    CyberMergeTournamentsRequest,
+    CyberMergeTournamentsResponse,
     CyberLiveRow,
     CyberMatch,
     CyberPredictResponse,
+    CyberReplaceValuesRequest,
+    CyberReplaceValuesResponse,
     CyberSummaryRow,
     CyberUpdateFieldRequest,
     DeleteRequest,
@@ -51,6 +55,26 @@ def update_match(row_id: int, req: CyberUpdateFieldRequest):
 def normalize_dates():
     updated = svc.normalize_existing_dates()
     return NormalizeDatesResponse(updated=updated)
+
+
+@router.post("/matches/replace", response_model=CyberReplaceValuesResponse)
+def replace_values(req: CyberReplaceValuesRequest):
+    replaced = svc.replace_values(
+        old_value=req.old_value,
+        new_value=req.new_value,
+        scope=req.scope,
+        tournament=req.tournament,
+    )
+    return CyberReplaceValuesResponse(replaced=replaced)
+
+
+@router.post("/tournaments/merge", response_model=CyberMergeTournamentsResponse)
+def merge_tournaments(req: CyberMergeTournamentsRequest):
+    updated = svc.merge_tournaments(
+        source_tournaments=req.source_tournaments,
+        target_tournament=req.target_tournament,
+    )
+    return CyberMergeTournamentsResponse(updated=updated)
 
 
 @router.delete("/matches/all")

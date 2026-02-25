@@ -10,7 +10,11 @@ from backend.app.schemas.halfs import (
     ImportPreviewResponse,
     ImportRequest,
     ImportResponse,
+    MergeTournamentsRequest,
+    MergeTournamentsResponse,
     NormalizeDatesResponse,
+    ReplaceValuesRequest,
+    ReplaceValuesResponse,
     StatisticsResponse,
     TeamStats,
     TournamentSummary,
@@ -61,6 +65,26 @@ def clear_all():
 def normalize_dates():
     updated = svc.normalize_existing_dates()
     return NormalizeDatesResponse(updated=updated)
+
+
+@router.post("/replace", response_model=ReplaceValuesResponse)
+def replace_values(req: ReplaceValuesRequest):
+    replaced = svc.replace_values(
+        old_value=req.old_value,
+        new_value=req.new_value,
+        scope=req.scope,
+        tournament=req.tournament,
+    )
+    return ReplaceValuesResponse(replaced=replaced)
+
+
+@router.post("/tournaments/merge", response_model=MergeTournamentsResponse)
+def merge_tournaments(req: MergeTournamentsRequest):
+    updated = svc.merge_tournaments(
+        source_tournaments=req.source_tournaments,
+        target_tournament=req.target_tournament,
+    )
+    return MergeTournamentsResponse(updated=updated)
 
 
 @router.get("/tournaments", response_model=List[str])
