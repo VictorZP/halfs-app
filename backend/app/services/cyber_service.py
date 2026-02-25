@@ -92,10 +92,15 @@ def _get_df(tournament: Optional[str] = None) -> pd.DataFrame:
     with get_cyber_connection() as conn:
         raw = conn._conn if hasattr(conn, "_conn") else conn
         if tournament:
-            sql = "SELECT * FROM cyber_matches WHERE tournament = ? ORDER BY id ASC"
+            sql = """
+            SELECT * FROM cyber_matches
+            WHERE tournament = ?
+               OR lower(trim(tournament)) = lower(trim(?))
+            ORDER BY id ASC
+            """
             if is_postgres():
                 sql = adapt_sql(sql)
-            return pd.read_sql_query(sql, raw, params=(tournament,))
+            return pd.read_sql_query(sql, raw, params=(tournament, tournament))
         return pd.read_sql_query("SELECT * FROM cyber_matches ORDER BY id ASC", raw)
 
 
@@ -440,12 +445,22 @@ def get_summary(tournament: Optional[str] = None) -> List[dict]:
 
 
 def _enriched_df_for_predict(tournament: str) -> pd.DataFrame:
+    tournament_key = normalize_key(tournament)
     df = _get_df(tournament=tournament)
     if df.empty:
-        return df
+        # Fallback to desktop-like behavior: normalize and match tournament key.
+        df_all = _get_df()
+        if df_all.empty:
+            return df_all
+        df_all = df_all.copy()
+        df_all["tournament_key"] = df_all["tournament"].fillna("").map(normalize_key)
+        return df_all[df_all["tournament_key"] == tournament_key].copy()
 
     df = df.copy()
     df["tournament_key"] = df["tournament"].fillna("").map(normalize_key)
+    df = df[df["tournament_key"] == tournament_key].copy()
+    if df.empty:
+        return df
     df["team_key"] = df["team"].fillna("").map(normalize_key)
     df["opponent_key"] = df["opponent"].fillna("").map(normalize_key)
 
