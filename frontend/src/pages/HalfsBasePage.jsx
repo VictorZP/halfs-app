@@ -424,6 +424,7 @@ export default function HalfsBasePage() {
           <Select
             value={replaceScope}
             onChange={setReplaceScope}
+            style={{ width: '100%' }}
             options={[
               { label: 'Во всей таблице', value: 'all' },
               { label: 'Только в выбранном турнире', value: 'tournament' },
@@ -434,9 +435,11 @@ export default function HalfsBasePage() {
               showSearch
               value={replaceTournament}
               onChange={setReplaceTournament}
+              style={{ width: '100%' }}
+              popupMatchSelectWidth={false}
               options={tournaments.map((t) => ({ label: t, value: t }))}
               placeholder="Выберите турнир"
-              filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+              filterOption={(input, option) => String(option?.label || '').toLowerCase().includes(input.toLowerCase())}
             />
           )}
         </Space>
@@ -456,9 +459,11 @@ export default function HalfsBasePage() {
             showSearch
             value={mergeSources}
             onChange={setMergeSources}
+            style={{ width: '100%' }}
+            popupMatchSelectWidth={false}
             options={tournaments.map((t) => ({ label: t, value: t }))}
             placeholder="Какие турниры объединить"
-            filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+            filterOption={(input, option) => String(option?.label || '').toLowerCase().includes(input.toLowerCase())}
           />
           <Input
             value={mergeTarget}

@@ -402,6 +402,7 @@ export default function CybersBasePage() {
           <Select
             value={replaceScope}
             onChange={setReplaceScope}
+            style={{ width: '100%' }}
             options={[
               { label: 'Во всей таблице', value: 'all' },
               { label: 'Только в выбранном турнире', value: 'tournament' },
@@ -412,9 +413,11 @@ export default function CybersBasePage() {
               showSearch
               value={replaceTournament}
               onChange={setReplaceTournament}
+              style={{ width: '100%' }}
+              popupMatchSelectWidth={false}
               options={tournamentOptions}
               placeholder="Выберите турнир"
-              filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+              filterOption={(input, option) => String(option?.label || '').toLowerCase().includes(input.toLowerCase())}
             />
           )}
         </Space>
@@ -434,9 +437,11 @@ export default function CybersBasePage() {
             showSearch
             value={mergeSources}
             onChange={setMergeSources}
+            style={{ width: '100%' }}
+            popupMatchSelectWidth={false}
             options={tournamentOptions}
             placeholder="Какие турниры объединить"
-            filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+            filterOption={(input, option) => String(option?.label || '').toLowerCase().includes(input.toLowerCase())}
           />
           <Input
             value={mergeTarget}
