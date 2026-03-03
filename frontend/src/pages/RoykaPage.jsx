@@ -4,6 +4,7 @@ import {
   Card,
   Col,
   Empty,
+  Input,
   Row,
   Select,
   Space,
@@ -15,6 +16,7 @@ import {
 import { ReloadOutlined } from '@ant-design/icons';
 import { royka } from '../api/client';
 
+const { TextArea } = Input;
 const toNum = (v) => (v == null || v === '' ? '' : Number(v).toFixed(1));
 const toRoi = (v) => `${Number(v || 0).toFixed(1)}%`;
 const winColor = (v) => (v > 0 ? '#52c41a' : v < 0 ? '#ff4d4f' : '#e0e0e0');
@@ -26,6 +28,55 @@ const renderRoiColored = (v) => {
   const n = Number(v || 0);
   return <span style={{ color: winColor(n), fontWeight: 600 }}>{toRoi(n)}</span>;
 };
+
+const parseFloatOrNull = (value) => {
+  const s = String(value ?? '').trim();
+  if (!s) return null;
+  const n = Number(s.replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+};
+
+const normalizeDate = (value) => {
+  const s = String(value ?? '').trim();
+  const parts = s.split('.');
+  if (parts.length === 3 && parts[2].length === 2) {
+    return `${parts[0]}.${parts[1]}.20${parts[2]}`;
+  }
+  return s;
+};
+
+function parseRoykaRows(rawText) {
+  const lines = String(rawText || '').split(/\r?\n/);
+  const rows = [];
+  const errors = [];
+  lines.forEach((line, idx) => {
+    if (!line.trim()) return;
+    const cols = line.split('\t').map((c) => c.trim());
+    if (cols.length !== 11) {
+      errors.push(`Строка ${idx + 1}: ожидается 11 колонок, получено ${cols.length}`);
+      return;
+    }
+    const tim = parseFloatOrNull(cols[6]);
+    if (tim == null) {
+      errors.push(`Строка ${idx + 1}: некорректный TIM "${cols[6]}"`);
+      return;
+    }
+    rows.push({
+      date: normalizeDate(cols[0]),
+      tournament: cols[1],
+      team_home: cols[2],
+      team_away: cols[3],
+      t1h: parseFloatOrNull(cols[4]),
+      t2h: parseFloatOrNull(cols[5]),
+      tim,
+      deviation: parseFloatOrNull(cols[7]),
+      kickoff: parseFloatOrNull(cols[8]),
+      predict: cols[9] || '0',
+      result: parseFloatOrNull(cols[10]),
+    });
+  });
+  return { rows, errors };
+}
 
 function HalfSummaryTable({ stats }) {
   const rows = ['OVER', 'UNDER', 'TOTAL'].map((k) => {
@@ -66,6 +117,8 @@ export default function RoykaPage() {
 
   const [selectedTournament, setSelectedTournament] = useState(null);
   const [matches, setMatches] = useState([]);
+  const [importText, setImportText] = useState('');
+  const [importLoading, setImportLoading] = useState(false);
 
   const [selectedDiffTournament, setSelectedDiffTournament] = useState(null);
   const [diffRows, setDiffRows] = useState([]);
@@ -189,6 +242,32 @@ export default function RoykaPage() {
     }
   };
 
+  const importFromText = async () => {
+    const { rows, errors } = parseRoykaRows(importText);
+    if (!rows.length) {
+      message.error(errors[0] || 'Нет валидных строк для импорта');
+      return;
+    }
+    if (errors.length) {
+      message.warning(`Часть строк пропущена: ${errors.length}`);
+    }
+    setImportLoading(true);
+    try {
+      const res = await royka.addMatches(rows);
+      const added = res.data?.added ?? rows.length;
+      message.success(`Добавлено записей: ${added}`);
+      setImportText('');
+      await loadBase();
+      if (selectedTournament) {
+        await loadMatches(selectedTournament);
+      }
+    } catch {
+      message.error('Ошибка импорта данных в Ройку');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
   const matchColumns = [
     { title: 'Дата', dataIndex: 'date', width: 100 },
     { title: 'Турнир', dataIndex: 'tournament', width: 150 },
@@ -256,6 +335,28 @@ export default function RoykaPage() {
 
   const dataTab = (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Card size="small" style={{ background: '#1a1a2e', border: '1px solid #333' }}>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <div style={{ color: '#bdbdbd' }}>
+            Вставьте все 11 колонок из Excel (табуляция) и нажмите "Импортировать данные".
+          </div>
+          <TextArea
+            rows={5}
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            placeholder={'Дата\tТурнир\tКоманда1\tКоманда2\tT1H\tT2H\tTIM\tDeviation\tKickOff\tPredict\tResult'}
+            style={{ background: '#101827', color: '#e0e0e0', border: '1px solid #333' }}
+          />
+          <Space>
+            <Button type="primary" onClick={importFromText} loading={importLoading}>
+              Импортировать данные
+            </Button>
+            <Button onClick={() => setImportText('')} disabled={!importText}>
+              Очистить ввод
+            </Button>
+          </Space>
+        </Space>
+      </Card>
       <Row gutter={16}>
         <Col xs={24} sm={8}>
           <Card size="small" style={{ background: '#1a1a2e', border: '1px solid #333' }}>
