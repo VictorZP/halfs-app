@@ -11,7 +11,7 @@ import {
   Upload,
   message,
 } from 'antd';
-import { UploadOutlined, PlayCircleOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import { UploadOutlined, PlayCircleOutlined, DownloadOutlined, ReloadOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { sortHalves } from '../api/client';
 
 const { Title, Text } = Typography;
@@ -26,13 +26,18 @@ function getFilenameFromDisposition(disposition) {
 export default function SortHalvesPage() {
   const [sourceFile, setSourceFile] = useState(null);
   const [destinationFile, setDestinationFile] = useState(null);
+  const [sourceHandle, setSourceHandle] = useState(null);
+  const [destinationHandle, setDestinationHandle] = useState(null);
   const [loading, setLoading] = useState(false);
   const [summaryRows, setSummaryRows] = useState([]);
   const [sheetsLoading, setSheetsLoading] = useState(false);
   const [tournamentSheets, setTournamentSheets] = useState([]);
   const [tournamentLinks, setTournamentLinks] = useState({});
+  const [processedBlob, setProcessedBlob] = useState(null);
+  const [processedFileName, setProcessedFileName] = useState('sorted_destination.xlsx');
 
   const canRun = useMemo(() => !!sourceFile && !!destinationFile, [sourceFile, destinationFile]);
+  const fileAccessSupported = typeof window !== 'undefined' && typeof window.showOpenFilePicker === 'function';
 
   useEffect(() => {
     try {
@@ -52,6 +57,56 @@ export default function SortHalvesPage() {
       // ignore storage errors
     }
   }, [tournamentLinks]);
+
+  const triggerDownload = (blob, fileName) => {
+    if (!blob) return;
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName || 'sorted_destination.xlsx';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const pickFileWithHandle = async ({ asDestination }) => {
+    if (!fileAccessSupported) {
+      message.warning('Ваш браузер не поддерживает прямую работу с локальным файлом. Используйте загрузку и скачивание.');
+      return;
+    }
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        multiple: false,
+        excludeAcceptAllOption: false,
+        types: [
+          {
+            description: 'Excel Files',
+            accept: {
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+              'application/vnd.ms-excel.sheet.macroEnabled.12': ['.xlsm'],
+            },
+          },
+        ],
+      });
+      if (!handle) return;
+      const file = await handle.getFile();
+      if (asDestination) {
+        setDestinationHandle(handle);
+        setDestinationFile(file);
+        setTournamentSheets([]);
+        message.success(`Выбран файл назначения: ${file.name}`);
+      } else {
+        setSourceHandle(handle);
+        setSourceFile(file);
+        message.success(`Выбран исходный файл: ${file.name}`);
+      }
+    } catch (e) {
+      if (e?.name !== 'AbortError') {
+        message.error('Не удалось открыть файл');
+      }
+    }
+  };
 
   const loadSheets = async (file = destinationFile) => {
     if (!file) {
@@ -83,6 +138,11 @@ export default function SortHalvesPage() {
       const disposition = response.headers?.['content-disposition'];
       const summaryHeader = response.headers?.['x-games-summary'];
       const fileName = getFilenameFromDisposition(disposition);
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      setProcessedBlob(blob);
+      setProcessedFileName(fileName);
 
       if (summaryHeader) {
         try {
@@ -106,19 +166,22 @@ export default function SortHalvesPage() {
         setSummaryRows([]);
       }
 
-      const blob = new Blob([response.data], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-
-      message.success('Сортировка завершена, файл скачан');
+      if (destinationHandle && typeof destinationHandle.createWritable === 'function') {
+        try {
+          const writable = await destinationHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          const updatedFile = await destinationHandle.getFile();
+          setDestinationFile(updatedFile);
+          message.success('Сортировка завершена: файл назначения обновлён (как в локальной версии)');
+        } catch {
+          triggerDownload(blob, fileName);
+          message.warning('Не удалось записать в файл назначения. Результат скачан отдельным файлом.');
+        }
+      } else {
+        triggerDownload(blob, fileName);
+        message.success('Сортировка завершена: результат скачан');
+      }
     } catch (error) {
       const detail = error?.response?.data?.detail;
       message.error(typeof detail === 'string' ? detail : 'Ошибка при сортировке файлов');
@@ -150,29 +213,45 @@ export default function SortHalvesPage() {
                       maxCount={1}
                       beforeUpload={(file) => {
                         setSourceFile(file);
+                        setSourceHandle(null);
                         return false;
                       }}
-                      onRemove={() => setSourceFile(null)}
+                      onRemove={() => {
+                        setSourceFile(null);
+                        setSourceHandle(null);
+                      }}
                       fileList={sourceFile ? [sourceFile] : []}
                     >
                       <Button icon={<UploadOutlined />}>Выбрать исходный файл</Button>
                     </Upload>
+                    {fileAccessSupported && (
+                      <Button icon={<FolderOpenOutlined />} onClick={() => pickFileWithHandle({ asDestination: false })}>
+                        Открыть исходный как локальный файл
+                      </Button>
+                    )}
 
                     <Upload
                       maxCount={1}
                       beforeUpload={(file) => {
                         setDestinationFile(file);
+                        setDestinationHandle(null);
                         setTournamentSheets([]);
                         return false;
                       }}
                       onRemove={() => {
                         setDestinationFile(null);
+                        setDestinationHandle(null);
                         setTournamentSheets([]);
                       }}
                       fileList={destinationFile ? [destinationFile] : []}
                     >
                       <Button icon={<UploadOutlined />}>Выбрать файл назначения</Button>
                     </Upload>
+                    {fileAccessSupported && (
+                      <Button icon={<FolderOpenOutlined />} onClick={() => pickFileWithHandle({ asDestination: true })}>
+                        Открыть файл назначения как локальный файл
+                      </Button>
+                    )}
 
                     <Space>
                       <Button
@@ -192,7 +271,19 @@ export default function SortHalvesPage() {
                       >
                         Запустить сортировку
                       </Button>
+                      <Button
+                        icon={<DownloadOutlined />}
+                        disabled={!processedBlob}
+                        onClick={() => triggerDownload(processedBlob, processedFileName)}
+                      >
+                        Скачать результат ещё раз
+                      </Button>
                     </Space>
+                    <Text style={{ color: '#888' }}>
+                      {destinationHandle
+                        ? 'Режим локального файла: результат записывается прямо в выбранный файл назначения.'
+                        : 'Режим браузера: результат сохраняется как скачанный файл.'}
+                    </Text>
                   </Space>
                 </Card>
 
@@ -200,7 +291,7 @@ export default function SortHalvesPage() {
                   type="info"
                   showIcon
                   style={{ marginBottom: 16 }}
-                  message="После обработки браузер автоматически скачает обновлённый файл назначения."
+                  message="Логика сортировки полностью как в локальной версии; отличается только способ сохранения файла в браузере."
                 />
 
                 <Card
